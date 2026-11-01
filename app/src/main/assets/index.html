@@ -229,10 +229,33 @@ let replyTo=null,swipeStart=null;
 function userThemeKey(){return 'darkchat_user_theme_'+(me?.id||'guest')}
 function setUserTheme(color){if(!/^#[0-9a-f]{6}$/i.test(color))return;document.documentElement.style.setProperty('--p1',color);document.documentElement.style.setProperty('--out',color);document.documentElement.style.setProperty('--p2',color)}
 function restoreUserTheme(){try{const c=localStorage.getItem(userThemeKey());if(c)setUserTheme(c)}catch(_){}}
-async function deleteMsg(id,all){const el=[...document.querySelectorAll('#msgs [data-mid]')].find(x=>x.dataset.mid===id);if(!el)return;
- if(!all){el.remove();try{const key='dc_hidden_'+me.id+'_'+cur;const a=JSON.parse(localStorage.getItem(key)||'[]');localStorage.setItem(key,JSON.stringify([...new Set([...a,id])]));}catch(_){}return}
- const {error}=await sb.from('messages').update({deleted_at:new Date().toISOString(),body:null,attachment_path:null}).eq('id',id).eq('sender_id',me.id);
- if(error)return toast('Delete for everyone failed: '+error.message,1);el.innerHTML='<i>This message was deleted.</i>';el.classList.add('x');}
+async function deleteMsg(id,all){
+ const el=[...document.querySelectorAll('#msgs [data-mid]')].find(x=>x.dataset.mid===id);
+ if(!el||!me)return;
+ if(!all){
+  el.remove();
+  try{const key='dc_hidden_'+me.id+'_'+cur;const a=JSON.parse(localStorage.getItem(key)||'[]');
+   localStorage.setItem(key,JSON.stringify([...new Set([...a,id])]));
+  }catch(_){}
+  return;
+ }
+ // Preserve a nonempty body so both old and new database CHECK rules are satisfied.
+ // Clear the original message/attachment reference; deleted_at hides all content in the UI.
+ const placeholder='This message was deleted.';
+ const {data,error}=await sb.from('messages')
+  .update({deleted_at:new Date().toISOString(),body:placeholder,attachment_path:null})
+  .eq('id',id).eq('sender_id',me.id).is('deleted_at',null)
+  .select('id,deleted_at').maybeSingle();
+ if(error)return toast('Delete for everyone failed: '+error.message,1);
+ if(!data)return toast('Message already deleted or not available.',1);
+ const content=el.querySelector('.msgbody');
+ if(content)content.textContent=placeholder;
+ el.classList.add('x');
+ const actions=el.querySelector('.msgtools');
+ if(actions)actions.remove();
+ if(last[cur]&&last[cur].id===id)last[cur]={...last[cur],deleted_at:data.deleted_at,body:placeholder,attachment_path:null};
+ render();
+}
 function replyMsg(el){replyTo={id:el.dataset.mid,text:(el.querySelector('.msgbody')?.textContent||'Message').slice(0,120)};const i=$('#inp');if(i){i.placeholder='Replying: '+replyTo.text.slice(0,35);i.focus()}}
 function showMsgActions(el){const id=el.dataset.mid,own=el.classList.contains('o');modal('<h3>Message options</h3><p class="note">'+esc((el.querySelector('.msgbody')?.textContent||'').slice(0,160))+'</p><button class="btn" data-a="replychoice" data-id="'+esc(id)+'" style="width:100%">Reply / React</button><button class="btn g" data-a="delmine" data-id="'+esc(id)+'" style="width:100%;margin-top:8px">Delete for me</button>'+(own?'<button class="btn r" data-a="delall" data-id="'+esc(id)+'" style="width:100%;margin-top:8px">Delete for everyone</button>':'')+'<button class="btn g" data-a="close" style="width:100%;margin-top:8px">Cancel</button>')}
 const LEG='#25D366',TM={bg:'--bg',pn:'--pn',tx:'--tx',mu:'--mu',bd:'--bd',g2:'--p1',g1:'--p2',g3:'--p3',in:'--in',out:'--out',chat:'--chat'};
@@ -308,7 +331,7 @@ function addMsg(m){
  else if(m.message_type==='audio'&&m.attachment_path)h+='<audio controls preload="none" src="'+esc(pub(m.attachment_path))+'"></audio>';
  else if(m.attachment_path)h+=attHtml(m);
  else h+=fmt(m.body);
- d.innerHTML='<div class="msgbody">'+h+'</div><small>'+tm(m.created_at)+'</small><div class="msgtools"><button type="button" data-a="reply">↪ Reply</button><button type="button" data-a="react">♡ React</button><button type="button" data-a="msgmenu">⋯</button></div>';box.appendChild(d);
+ d.innerHTML='<div class="msgbody">'+h+'</div><small>'+tm(m.created_at)+'</small>'+(m.deleted_at?'':'<div class="msgtools"><button type="button" data-a="reply">↪ Reply</button><button type="button" data-a="react">♡ React</button><button type="button" data-a="msgmenu">⋯</button></div>');box.appendChild(d);
  if(box.scrollHeight-box.scrollTop-box.clientHeight<220||mine)scrollDown();
 }
 const scrollDown=()=>{const b=$('#msgs');if(b)b.scrollTop=b.scrollHeight};
