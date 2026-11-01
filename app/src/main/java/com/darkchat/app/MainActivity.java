@@ -31,10 +31,13 @@ public final class MainActivity extends Activity {
     private static final int AV_REQUEST = 302;
     private volatile boolean pageLoaded = false;
     static MainActivity active;
+    private String pendingCallId;
+    private String pendingCallAction;
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         active = this;
+        captureIncomingCallIntent(getIntent());
         createNotificationChannel();
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 300);
@@ -59,6 +62,7 @@ public final class MainActivity extends Activity {
             }
             @Override public void onPageFinished(WebView view, String url) {
                 pageLoaded = true;
+                deliverPendingCallIntent();
                 sendSavedToken();
                 checkFirebaseToken();
             }
@@ -100,6 +104,37 @@ public final class MainActivity extends Activity {
         webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
     }
 
+
+    private void captureIncomingCallIntent(Intent intent) {
+        if (intent == null) return;
+        String id = intent.getStringExtra("call_invite_id");
+        if (id == null || !id.matches("[0-9a-fA-F-]{36}")) return;
+        String action = intent.getStringExtra("call_action");
+        if (!"answer".equals(action) && !"decline".equals(action)) action = "open";
+        pendingCallId = id;
+        pendingCallAction = action;
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) manager.cancel(DarkChatMessagingService.CALL_TAG, id.hashCode());
+    }
+
+    private void deliverPendingCallIntent() {
+        if (!pageLoaded || webView == null || pendingCallId == null) return;
+        String id = pendingCallId;
+        String action = pendingCallAction;
+        pendingCallId = null;
+        pendingCallAction = null;
+        String script = "window.dispatchEvent(new CustomEvent('darkchat-open-call',{detail:{id:"
+            + JSONObject.quote(id) + ",action:" + JSONObject.quote(action) + "}}));";
+        runOnUiThread(() -> webView.evaluateJavascript(script, null));
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        captureIncomingCallIntent(intent);
+        deliverPendingCallIntent();
+    }
+
     private void sendPushStatus(String status, String message) {
         if (!pageLoaded || webView == null) return;
         final String script = "window.dispatchEvent(new CustomEvent('darkchat-native-push-status',{detail:{status:"
@@ -135,6 +170,7 @@ public final class MainActivity extends Activity {
             NotificationChannel channel = new NotificationChannel("default", "DARK CHAT Messages and Calls", NotificationManager.IMPORTANCE_HIGH);
             channel.enableVibration(true);
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
+            DarkChatMessagingService.createCallChannel(this);
         }
     }
 

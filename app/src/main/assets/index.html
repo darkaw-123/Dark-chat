@@ -202,6 +202,7 @@ async function boot(){
   await Promise.all([loadConvs(),loadStatus(),loadAnns(),loadLogs()]);
   $('#boot').hidden=true;$('#app').hidden=false;
   buildNav();render();subscribe();listenCalls();
+  setTimeout(()=>checkPendingCall(),800);
   if(window.DarkChat&&window.DarkChat._t)window.DarkChat.registerPushToken(window.DarkChat._t);
   else if(window.DarkChatDevice)window.DarkChatDevice.refreshToken();
   if('Notification' in window&&Notification.permission==='default')document.addEventListener('click',()=>Notification.requestPermission().catch(()=>{}),{once:true});
@@ -374,9 +375,62 @@ function subscribe(){
    if((s==='CHANNEL_ERROR'||s==='TIMED_OUT'||s==='CLOSED')&&me&&db){const old=db;db=null;sb.removeChannel(old);setTimeout(()=>{if(me&&!db){subscribe();loadConvs().then(render).catch(()=>{})}},Math.min(15000,1500*++rtRetry))}
  });
 }
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&me&&booted)loadConvs().then(()=>{render();listenCalls()}).catch(()=>{})});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&me&&booted)loadConvs().then(()=>{render();listenCalls();setTimeout(()=>checkPendingCall(),350)}).catch(()=>{})});
 
 /* ---------- calls (private 1:1 only) ---------- */
+
+let pendingNativeCall=null,checkingCall=false;
+async function dispatchCallPush(id){
+ try{const {data,error}=await sb.functions.invoke('darkchat-send-push',{body:{call_invite_id:id}});
+ if(error||data?.error||data?.skipped||data?.failed)console.warn('Call push:',error?.message||data)}
+ catch(e){console.warn('Call push network:',e)}
+}
+async function dismissCallInvite(id){
+ if(!id||!me)return;
+ try{const {error}=await sb.from('call_invites').delete().eq('id',id);
+ if(error)console.warn('Call invitation cleanup:',error.message)}
+ catch(e){console.warn('Call invitation cleanup:',e)}
+}
+function showIncomingCall(cid,kind,id){
+ if(call||!conv(cid)||conv(cid).kind!=='direct')return false;
+ call={cid,kind:kind==='video'?'video':'voice',dir:'in',pending:[],ok:false,inviteId:id||null};
+ callUI(ringHtml('Incoming '+call.kind+' call','<button class="ib" style="background:#e11d48" data-a="dcall">'+ic('end')+'</button><button class="ib" style="background:var(--ok)" data-a="acall">'+ic('ok')+'</button>'),false);
+ call.timer=setTimeout(()=>endCall('missed',true),40000);
+ notify('Incoming '+call.kind+' call',peerOf(cid).display_name||'');return true
+}
+async function checkPendingCall(){
+ if(!me||!booted||!sb||checkingCall)return;
+ if(call&&(!pendingNativeCall||pendingNativeCall.action!=='answer'))return;
+ checkingCall=true;
+ const request=pendingNativeCall;
+ try{
+  let q=sb.from('call_invites').select('id,conversation_id,caller_id,recipient_id,kind,expires_at')
+   .eq('recipient_id',me.id).gt('expires_at',new Date().toISOString()).order('created_at',{ascending:false}).limit(1);
+  if(request?.id)q=q.eq('id',request.id);
+  const {data,error}=await q;
+  if(error){console.warn('Incoming call lookup:',error.message);return}
+  const invite=data?.[0];
+  if(!invite){if(request)pendingNativeCall=null;return}
+  const c=conv(invite.conversation_id);
+  if(!c||c.kind!=='direct'||other(c)?.user_id!==invite.caller_id)return;
+  if(request?.action==='decline'){
+   if(call&&call.cid===invite.conversation_id&&call.dir==='in')endCall('missed',true);
+   else{sig(invite.conversation_id,{t:'decline'});await dismissCallInvite(invite.id)}
+   pendingNativeCall=null;return;
+  }
+  if(!call)showIncomingCall(invite.conversation_id,invite.kind,invite.id);
+  if(request?.action==='answer'&&call?.dir==='in'&&call.cid===invite.conversation_id){
+   pendingNativeCall=null;setTimeout(()=>acceptCall(),350);
+  }else if(request)pendingNativeCall=null;
+ }catch(e){console.warn('FCM incoming call lookup:',e)}
+ finally{checkingCall=false}
+}
+window.addEventListener('darkchat-open-call',e=>{
+ const d=e.detail||{};
+ pendingNativeCall={id:String(d.id||''),action:String(d.action||'open')};
+ if(me&&booted)setTimeout(()=>checkPendingCall(),100)
+});
+
 async function iceServers(){try{const {data:{session}}=await sb.auth.getSession();const r=await fetch(U+'/functions/v1/darkchat-webrtc-ice',{headers:{Authorization:'Bearer '+session.access_token,apikey:K}});const j=await r.json();if(j.iceServers)return j.iceServers}catch(_){}return [{urls:'stun:stun.l.google.com:19302'}]}
 async function listenCalls(){
  const {data:{session}}=await sb.auth.getSession();if(session)await sb.realtime.setAuth(session.access_token);
@@ -394,11 +448,22 @@ async function media(kind){if(!navigator.mediaDevices)throw new Error('Calls nee
 async function startCall(kind){
  if(call)return toast('You are already in a call.',1);
  const c=conv(cur);if(!c||c.kind!=='direct')return toast('Only private chats can start calls.',1);
- call={cid:c.id,kind,dir:'out',pending:[],ok:false};
+ const recipient=other(c)?.user_id;if(!recipient)return toast('No recipient for this call.',1);
+ call={cid:c.id,kind,dir:'out',pending:[],ok:false,inviteId:null};
  try{call.stream=await media(kind)}catch(e){call=null;return toast(e.message,1)}
  callUI(ringHtml('Calling…','<button class="ib" style="background:#e11d48" data-a="xcall">'+ic('end')+'</button>'),kind==='video');
  if(kind==='video')$('#lv').srcObject=call.stream;
- sig(c.id,{t:'invite',kind});
+ try{
+  const {data,error}=await sb.from('call_invites').insert({
+   conversation_id:c.id,caller_id:me.id,recipient_id:recipient,kind:kind,
+   expires_at:new Date(Date.now()+40000).toISOString()
+  }).select('id').single();
+  if(error)throw error;
+  if(call&&call.cid===c.id&&call.dir==='out'){call.inviteId=data.id;dispatchCallPush(data.id)}
+  else{dismissCallInvite(data.id);return}
+ }catch(e){console.warn('Call push registration:',e);toast('Call push unavailable; trying live call.',1)}
+ if(!call||call.cid!==c.id)return;
+ sig(c.id,{t:'invite',kind,call_invite_id:call.inviteId});
  call.timer=setTimeout(()=>{toast('No answer.',1);endCall('missed',true)},40000);
 }
 async function newPC(){
@@ -416,11 +481,12 @@ async function onSig(cid,p){
  if(p.from===me.id)return;
  if(p.t==='invite'){
   if(p.ended_at)return;
-  if(call){sig(cid,{t:'decline',busy:1});return}
-  call={cid,kind:p.kind==='video'?'video':'voice',dir:'in',pending:[],ok:false};
-  callUI(ringHtml('Incoming '+call.kind+' call','<button class="ib" style="background:#e11d48" data-a="dcall">'+ic('end')+'</button><button class="ib" style="background:var(--ok)" data-a="acall">'+ic('ok')+'</button>'),false);
-  call.timer=setTimeout(()=>endCall('missed',true),40000);
-  notify('Incoming call',peerOf(cid).display_name||'');return}
+  if(call){
+   if(call.dir==='in'&&call.cid===cid)return;
+   sig(cid,{t:'decline',busy:1});return;
+  }
+  showIncomingCall(cid,p.kind,p.call_invite_id);return;
+ }
  if(!call||call.cid!==cid)return;
  if(p.t==='accept'&&call.dir==='out'){clearTimeout(call.timer);callState('Connecting…');
   try{await newPC();const o=await call.pc.createOffer();await call.pc.setLocalDescription(o);sig(cid,{t:'offer',sdp:o})}catch(e){toast('Could not start the call.',1);endCall('failed',true)}}
@@ -435,11 +501,12 @@ async function acceptCall(){
  try{call.stream=await media(call.kind)}catch(e){toast(e.message,1);sig(call.cid,{t:'decline'});return endCall('failed',false)}
  callUI(ringHtml('Connecting…','<button class="ib" style="background:#e11d48" data-a="xcall">'+ic('end')+'</button>'),call.kind==='video');
  if(call.kind==='video')$('#lv').srcObject=call.stream;
- try{await newPC();sig(call.cid,{t:'accept'})}catch(e){toast('Could not start the call.',1);endCall('failed',true)}
+ try{await newPC();sig(call.cid,{t:'accept'});if(call.inviteId)dismissCallInvite(call.inviteId)}catch(e){toast('Could not start the call.',1);endCall('failed',true)}
 }
 function endCall(why,notifyPeer){
  if(!call)return;const c=call;call=null;clearTimeout(c.timer);
  if(notifyPeer)reliableCallEnd(c.cid,'end');
+ if(c.inviteId)dismissCallInvite(c.inviteId);
  try{c.pc&&c.pc.close()}catch(_){}try{c.stream&&c.stream.getTracks().forEach(t=>t.stop())}catch(_){}
  const u=$('#callUI');u.hidden=true;u.innerHTML='';
  const p=peerOf(c.cid),out=c.dir==='out';
@@ -578,7 +645,7 @@ document.addEventListener('click',e=>{
 });
 window.addEventListener('focus',()=>{if(me&&window.DarkChat?._t&&window.DarkChat._registeredUser!==me.id)window.DarkChat.registerPushToken(window.DarkChat._t)});
 
-window.addEventListener('online',()=>{if(me&&booted){if(!db)subscribe();loadConvs().then(()=>{render();listenCalls()}).catch(()=>{});}});
+window.addEventListener('online',()=>{if(me&&booted){if(!db)subscribe();loadConvs().then(()=>{render();listenCalls();checkPendingCall()}).catch(()=>{});}});
 
 /* Single-file mode: external service worker intentionally not registered. */
 </script>
