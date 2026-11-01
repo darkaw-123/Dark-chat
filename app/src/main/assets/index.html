@@ -156,6 +156,17 @@ function modal(h){const m=$('#modal');m.innerHTML='<div class="ov"><div class="c
 function closeM(){const m=$('#modal');m.hidden=true;m.innerHTML=''}
 document.addEventListener('click',e=>{if(e.target.classList.contains('ov'))closeM()});
 
+/* FCM dispatch must surface silent server skips for diagnostics. */
+async function dispatchMessagePush(messageId){
+ try{
+  const {data,error}=await sb.functions.invoke('darkchat-send-push',{body:{message_id:messageId}});
+  if(error)console.warn('DARK CHAT FCM push request failed:',error.message);
+  else if(data?.error)console.warn('DARK CHAT FCM sender:',data.error);
+  else if(data?.failed)console.warn('DARK CHAT FCM rejected devices:',data.failed);
+  else if(data?.skipped)console.info('DARK CHAT FCM not delivered:',data.skipped);
+ }catch(e){console.warn('DARK CHAT FCM network issue:',e?.message||e)}
+}
+
 /* ---------- auth ---------- */
 let mode='login',busy=false;
 function setMode(m){mode=m;const s=m==='signup';$('#asub').textContent=s?'Choose a username and password.':'Log in to your account.';$('#ab').textContent=s?'Create account':'Log in';$('#at').textContent=s?'I already have an account':'Create a new account';$('#p').autocomplete=s?'new-password':'current-password';$('#ae').textContent=''}
@@ -192,6 +203,7 @@ async function boot(){
   $('#boot').hidden=true;$('#app').hidden=false;
   buildNav();render();subscribe();listenCalls();
   if(window.DarkChat&&window.DarkChat._t)window.DarkChat.registerPushToken(window.DarkChat._t);
+  else if(window.DarkChatDevice)window.DarkChatDevice.refreshToken();
   if('Notification' in window&&Notification.permission==='default')document.addEventListener('click',()=>Notification.requestPermission().catch(()=>{}),{once:true});
  }catch(e){
   booted=false;$('#bootmsg').innerHTML='<div style="text-align:center">'+LOGO+'<p>Could not load your data.<br><small style="color:var(--mu)">'+esc(e.message||e)+'</small></p><button class="btn" id="rt">Retry</button> <button class="btn g" id="lo">Log out</button></div>';
@@ -262,7 +274,7 @@ function render(){
   l.innerHTML='<div style="padding:24px 18px 0;display:grid;gap:4px;justify-items:center"><label for="avf" style="cursor:pointer;margin:0">'+avHtml(prof.avatar_path,prof.username,'l')+'<div style="text-align:center;color:var(--p3);font-size:13px;margin-top:8px">Change photo</div></label><input id="avf" data-c="avatar" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden><span style="color:var(--mu)">@'+esc(prof.username)+'</span></div>'+
   '<div style="padding:0 18px 24px"><label for="dn">Name</label><input id="dn" maxlength="32" value="'+esc(prof.display_name||prof.username)+'"><label for="ab2">About</label><textarea id="ab2" rows="3" maxlength="200">'+esc(prof.about||'')+'</textarea><button class="btn" data-a="save" style="width:100%;margin-top:14px">Save profile</button>'+
   '<h4 style="margin:26px 0 0">Personal chat color</h4><label for="mycolor">Choose your theme color</label><input id="mycolor" type="color" value="'+esc((()=>{try{return localStorage.getItem(userThemeKey())||'#8b5cf6'}catch(_){return '#8b5cf6'}})())+'" style="height:52px"><button class="btn g" data-a="color" style="width:100%;margin-top:8px">Apply my color</button>'+ '<h4 style="margin:26px 0 0">Change password</h4><label for="pw1">New password</label><input id="pw1" type="password" autocomplete="new-password" maxlength="72"><label for="pw2">Repeat new password</label><input id="pw2" type="password" autocomplete="new-password" maxlength="72"><button class="btn g" data-a="pw" style="width:100%;margin-top:12px">Update password</button>'+
-  '<h4 style="margin:26px 0 8px">Notifications</h4><button class="btn g" data-a="notif" style="width:100%">'+esc(nlabel())+'</button><button class="btn g" data-a="out" style="width:100%;margin-top:22px">Log out</button></div>';
+  '<h4 style="margin:26px 0 8px">Notifications</h4><button class="btn g" data-a="notif" style="width:100%">'+esc(nlabel())+'</button><div id="nativePushStatus" class="note" style="margin:12px 0">'+esc(window.DarkChat?.statusText||'Checking Android FCM...')+'</div><button class="btn g" data-a="pushcheck" style="width:100%">Check / Retry Android Push</button><button class="btn g" data-a="out" style="width:100%;margin-top:22px">Log out</button></div>';
  }
 }
 function rowHtml(c){const m=last[c.id],u=unread[c.id];return '<div class="row'+(cur===c.id?' on':'')+'" data-a="open" data-id="'+c.id+'">'+avHtml(cav(c),cname(c))+'<div class="rt"><b>'+esc(cname(c))+'</b><span>'+(m?esc((m.sender_id===me.id?'You: ':c.kind==='group'?(names[m.sender_id]?.display_name||'')+': ':'')+prev(m)):'No messages yet')+'</span></div><div class="tm">'+(m?dt(m.created_at):'')+(u?'<div class="dot" style="position:static;margin-top:4px;display:inline-block">'+u+'</div>':'')+'</div></div>'}
@@ -302,7 +314,7 @@ const scrollDown=()=>{const b=$('#msgs');if(b)b.scrollTop=b.scrollHeight};
 async function send(){
  const i=$('#inp');if(!i||sending)return;let b=i.value.trim();if(!b)return;if(replyTo){b='↪ '+replyTo.text+'\n'+b;replyTo=null;i.placeholder='Message'}sending=true;i.value='';
  try{const {data,error}=await sb.from('messages').insert({conversation_id:cur,sender_id:me.id,body:b}).select().single();if(error)throw error;
-  last[cur]=data;addMsg(data);render();sb.functions.invoke('darkchat-send-push',{body:{message_id:data.id}}).then(({error})=>{if(error)console.warn('Push dispatch failed:',error.message)}).catch(e=>console.warn('Push dispatch failed:',e));
+  last[cur]=data;addMsg(data);render();dispatchMessagePush(data.id);
  }catch(e){i.value=b;toast('Message not sent: '+(e.message||'network error'),1)}
  sending=false;
 }
@@ -326,7 +338,7 @@ async function sendAudio(cid,blob,type){
  try{const up=await sb.storage.from(BUCKET).upload(path,blob,{contentType:type});if(up.error)throw up.error;
   const {data,error}=await sb.from('messages').insert({conversation_id:cid,sender_id:me.id,message_type:'audio',attachment_path:path,body:null}).select().single();
   if(error){await sb.storage.from(BUCKET).remove([path]);throw error}
-  last[cid]=data;addMsg(data);render();sb.functions.invoke('darkchat-send-push',{body:{message_id:data.id}}).then(({error})=>{if(error)console.warn('Push dispatch failed:',error.message)}).catch(e=>console.warn('Push dispatch failed:',e));
+  last[cid]=data;addMsg(data);render();dispatchMessagePush(data.id);
  }catch(e){toast('Voice message failed: '+(e.message||'upload error'),1)}
 }
 
@@ -337,7 +349,7 @@ async function sendFile(cid,f){
  try{const up=await sb.storage.from(BUCKET).upload(path,f,{contentType:f.type||'application/octet-stream'});if(up.error)throw up.error;
   const {data,error}=await sb.from('messages').insert({conversation_id:cid,sender_id:me.id,message_type:img?'image':'file',attachment_path:path,body:f.name.slice(0,200)}).select().single();
   if(error){await sb.storage.from(BUCKET).remove([path]);throw error}
-  last[cid]=data;addMsg(data);render();sb.functions.invoke('darkchat-send-push',{body:{message_id:data.id}}).then(({error})=>{if(error)console.warn('Push dispatch failed:',error.message)}).catch(e=>console.warn('Push dispatch failed:',e));
+  last[cid]=data;addMsg(data);render();dispatchMessagePush(data.id);
  }catch(e){toast(/mime|type/i.test(e.message||'')?'This file type is not allowed.':'Could not send file: '+(e.message||'upload error'),1)}
 }
 
@@ -504,8 +516,68 @@ function vv(){const h=window.visualViewport?window.visualViewport.height:window.
 if(window.visualViewport)window.visualViewport.addEventListener('resize',vv);window.addEventListener('resize',vv);vv();
 window.addEventListener('unhandledrejection',e=>console.error('DARK CHAT:',e.reason));
 window.addEventListener('error',e=>console.error('DARK CHAT:',e.message));
-window.DarkChat={_t:null,registerPushToken:async t=>{window.DarkChat._t=t;if(!me||!t||!sb)return false;const {error}=await sb.from('device_push_tokens').upsert({user_id:me.id,fcm_token:t,platform:'android',last_seen_at:new Date().toISOString()},{onConflict:'fcm_token'});if(error)console.error('push token',error.message);return !error},requestNotificationPermission:async()=>{if(!('Notification' in window))return 'Native Android notification permission must be requested by the APK';return Notification.requestPermission()}};
-window.addEventListener('darkchat-fcm-token',e=>{const t=e.detail?.token;if(t)window.DarkChat.registerPushToken(t)});
+/* Firebase registration and live diagnostics for cloud test devices. */
+function setAndroidPushStatus(message){
+ if(!window.DarkChat)return;
+ window.DarkChat.statusText=String(message||'FCM status unknown').slice(0,260);
+ const target=$('#nativePushStatus');if(target)target.textContent=window.DarkChat.statusText;
+}
+window.DarkChat={
+ _t:null,_busy:false,_retryTimer:null,_registeredUser:null,statusText:'Waiting for Android FCM token...',
+ registerPushToken:async function(t){
+  if(!t)return false;
+  this._t=t;
+  if(!me||!sb){setAndroidPushStatus('FCM token ready. Sign in to register it.');return false}
+  if(this._busy)return false;
+  if(this._retryTimer){clearTimeout(this._retryTimer);this._retryTimer=null}
+  this._busy=true;
+  setAndroidPushStatus('FCM token received. Registering with Supabase...');
+  try{
+   const {data,error}=await sb.from('device_push_tokens').upsert({
+    user_id:me.id,fcm_token:t,platform:'android',package_name:'com.darkchat.app',
+    last_seen_at:new Date().toISOString()
+   },{onConflict:'fcm_token'}).select('id,user_id').single();
+   if(error)throw error;
+   if(!data||data.user_id!==me.id)throw new Error('Token registration not confirmed');
+   this._registeredUser=me.id;
+   setAndroidPushStatus('FCM registered for this account. Check Android notification permission.');
+   return true;
+  }catch(error){
+   console.warn('DARK CHAT FCM token registration failed:',error?.message||error);
+   this._registeredUser=null;
+   setAndroidPushStatus('FCM registration failed: '+(error?.message||'network error'));
+   this._retryTimer=setTimeout(()=>{
+    this._retryTimer=null;
+    if(me&&this._t&&this._registeredUser!==me.id)this.registerPushToken(this._t);
+   },20000);
+   return false;
+  }finally{this._busy=false}
+ },
+ requestNotificationPermission:async()=>{
+  if(window.DarkChatDevice){window.DarkChatDevice.requestPermission();return 'Android notification permission requested'}
+  if(!('Notification' in window))return 'Android app required for push permissions';
+  return Notification.requestPermission()
+ }
+};
+window.addEventListener('darkchat-fcm-token',e=>{
+ const t=e.detail?.token;
+ if(t)window.DarkChat.registerPushToken(t)
+});
+window.addEventListener('darkchat-native-push-status',e=>{
+ const d=e.detail||{},msg=String(d.message||'');
+ if(d.status==='missing_play_services')setAndroidPushStatus('FCM unavailable: Google Play services missing on this device.');
+ else if(d.status==='token_error')setAndroidPushStatus('FCM token error: '+msg);
+ else if(d.status==='notification_blocked')setAndroidPushStatus('FCM token may be ready, but Android notifications are blocked. Enable permission.');
+ else if(d.status==='checking'&&!window.DarkChat._t)setAndroidPushStatus('Checking Firebase and Google Play services...');
+});
+document.addEventListener('click',e=>{
+ if(!e.target.closest('[data-a="pushcheck"]'))return;
+ if(window.DarkChatDevice){window.DarkChatDevice.requestPermission();window.DarkChatDevice.refreshToken()}
+ else if(window.DarkChat._t)window.DarkChat.registerPushToken(window.DarkChat._t);
+ else setAndroidPushStatus('Android FCM is only available inside the installed APK.');
+});
+window.addEventListener('focus',()=>{if(me&&window.DarkChat?._t&&window.DarkChat._registeredUser!==me.id)window.DarkChat.registerPushToken(window.DarkChat._t)});
+
 window.addEventListener('online',()=>{if(me&&booted){if(!db)subscribe();loadConvs().then(()=>{render();listenCalls()}).catch(()=>{});}});
 
 /* Single-file mode: external service worker intentionally not registered. */

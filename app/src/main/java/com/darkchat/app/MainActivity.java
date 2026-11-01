@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -18,6 +19,8 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import androidx.webkit.WebViewAssetLoader;
 import com.google.firebase.messaging.FirebaseMessaging;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GoogleApiAvailability;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
@@ -42,6 +45,10 @@ public final class MainActivity extends Activity {
         webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
         webView.getSettings().setAllowFileAccess(false);
         webView.getSettings().setAllowContentAccess(false);
+        webView.addJavascriptInterface(new Object() {
+            @JavascriptInterface public void refreshToken() { runOnUiThread(() -> checkFirebaseToken()); }
+            @JavascriptInterface public void requestPermission() { runOnUiThread(() -> requestPushPermission()); }
+        }, "DarkChatDevice");
 
         final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
@@ -53,8 +60,7 @@ public final class MainActivity extends Activity {
             @Override public void onPageFinished(WebView view, String url) {
                 pageLoaded = true;
                 sendSavedToken();
-                FirebaseMessaging.getInstance().getToken()
-                    .addOnSuccessListener(MainActivity.this::deliverToken);
+                checkFirebaseToken();
             }
         });
         webView.setWebChromeClient(new WebChromeClient() {
@@ -94,6 +100,36 @@ public final class MainActivity extends Activity {
         webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
     }
 
+    private void sendPushStatus(String status, String message) {
+        if (!pageLoaded || webView == null) return;
+        final String script = "window.dispatchEvent(new CustomEvent('darkchat-native-push-status',{detail:{status:"
+            + JSONObject.quote(status) + ",message:" + JSONObject.quote(message) + "}}));";
+        runOnUiThread(() -> webView.evaluateJavascript(script, null));
+    }
+
+    private void checkFirebaseToken() {
+        if (webView == null) return;
+        sendPushStatus("checking", "Checking Firebase...");
+        int result = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this);
+        if (result != ConnectionResult.SUCCESS) {
+            sendPushStatus("missing_play_services", "Google Play services unavailable (code " + result + ")");
+            return;
+        }
+        FirebaseMessaging.getInstance().getToken()
+            .addOnSuccessListener(this::deliverToken)
+            .addOnFailureListener(err -> sendPushStatus("token_error", err.getMessage() == null ? "Firebase unavailable" : err.getMessage()));
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            sendPushStatus("notification_blocked", "Android notification permission is not granted");
+    }
+
+    private void requestPushPermission() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 300);
+        }
+    }
+
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel("default", "DARK CHAT Messages and Calls", NotificationManager.IMPORTANCE_HIGH);
@@ -104,6 +140,11 @@ public final class MainActivity extends Activity {
 
     @Override public void onRequestPermissionsResult(int req, String[] permissions, int[] grants) {
         super.onRequestPermissionsResult(req, permissions, grants);
+        if (req == 300) {
+            if (grants.length == 0 || grants[0] != PackageManager.PERMISSION_GRANTED)
+                sendPushStatus("notification_blocked", "User denied Android notification permission");
+            else checkFirebaseToken();
+        }
         if (req == AV_REQUEST && pendingWebPermission != null) {
             PermissionRequest request = pendingWebPermission;
             pendingWebPermission = null;
@@ -139,7 +180,7 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         active = this;
-        if (pageLoaded) sendSavedToken();
+        if (pageLoaded) { sendSavedToken(); checkFirebaseToken(); }
     }
 
     @Override protected void onPause() {
