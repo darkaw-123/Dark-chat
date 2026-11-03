@@ -12,7 +12,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     timeout-minutes: 30
     steps:
       - name: Check out source
@@ -41,3 +41,18 @@ jobs:
           name: DARK_CHAT_FREE_FCM_APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Publish permanent public APK download (v1.4)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Dark-Chat-v1.4.apk
+          if gh release view v1.4 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v1.4 Dark-Chat-v1.4.apk --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create v1.4 Dark-Chat-v1.4.apk \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Dark Chat v1.4 — Android APK" \
+              --notes "Dark Chat v1.4: messaging, voice and video calls, FCM notifications and Delete for Everyone fix. Android 8.0+. Official app download."
+          fi
