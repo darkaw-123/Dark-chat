@@ -1,4 +1,4 @@
-name: Build DARK CHAT APK with Free FCM
+name: Build DARK CHAT V9 APK with FCM and AdMob
 on:
   workflow_dispatch:
   push:
@@ -33,38 +33,44 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Check Store JavaScript syntax
-        run: node --check app/src/main/assets/store.js
+      - name: Validate bundled V9 HTML
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('app/src/main/assets/index.html').read_text()
+          for v in ['DCChatReceiveDeepLink','darkchat-fcm-token','darkchat-open-call','darkchat-send-push']:
+              assert v in s, f'Missing V9 feature {v}'
+          print('Validated V9 HTML',len(s),'characters')
+          PY
       - name: Export HTML source
         run: |
           mkdir -p dist
-          cp app/src/main/assets/index.html dist/Dark_Chat_v1_5_User.html
-          cp app/src/main/assets/store.js dist/store.js
-      - name: Upload v1.5 source
+          cp app/src/main/assets/index.html dist/Dark_Chat_V9.html
+      - name: Upload V9 HTML source
         uses: actions/upload-artifact@v4
         with:
-          name: Dark_Chat_v1_5_User_Source
+          name: DARK_CHAT_V9_HTML_Source
           path: dist/
       - name: Build installable debug APK
         run: gradle :app:assembleDebug --no-daemon --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_FREE_FCM_APK
+          name: DARK_CHAT_V9_FCM_ADMOB_APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-      - name: Publish permanent public APK download (v1.4)
+      - name: Publish V9 APK to GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Dark-Chat-v1.5.apk
-          if gh release view v1.5 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload v1.5 Dark-Chat-v1.5.apk --clobber --repo "$GITHUB_REPOSITORY"
+          cp app/build/outputs/apk/debug/app-debug.apk Dark-Chat-v9.apk
+          if gh release view v9 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v9 Dark-Chat-v9.apk --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create v1.5 Dark-Chat-v1.5.apk \
+            gh release create v9 Dark-Chat-v9.apk \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "Dark Chat v1.5 — Marketplace APK" \
-              --notes "Dark Chat v1.5: stores, JazzCash store purchase requests with admin approval, C Anyway auto replies, product listings, orders and sponsored announcement banners. Android 8.0+."
+              --title "DARK CHAT V9 — FCM + AdMob Test Banner APK" \
+              --notes "Dark Chat V9: seller direct deep links, chat keyword product cards, checkout, payment receipt, seller order notifications, Firebase FCM for calls/messages, and Google Mobile Ads SDK with debug test banner. Android 8.0+."
           fi
