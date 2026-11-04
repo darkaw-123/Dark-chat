@@ -4,6 +4,15 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.pm.ApplicationInfo;
+import android.view.View;
+import android.widget.LinearLayout;
+import com.google.android.gms.ads.AdView;
+import com.google.android.gms.ads.AdRequest;
+import com.google.android.gms.ads.AdSize;
+import com.google.android.gms.ads.AdListener;
+import com.google.android.gms.ads.LoadAdError;
+import com.google.android.gms.ads.MobileAds;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -25,6 +34,8 @@ import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
     private WebView webView;
+    private AdView adView;
+    private String pendingSeller;
     private ValueCallback<Uri[]> filePicker;
     private PermissionRequest pendingWebPermission;
     private static final int FILE_REQUEST = 301;
@@ -38,11 +49,32 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         active = this;
         captureIncomingCallIntent(getIntent());
+        captureSellerIntent(getIntent());
         createNotificationChannel();
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 300);
         webView = new WebView(this);
-        setContentView(webView);
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.VERTICAL);
+        shell.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1));
+        // Native Android AdMob banner: test ads on debug, publisher ads on signed release.
+        adView = new AdView(this);
+        final boolean debugBuild = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        adView.setAdUnitId(debugBuild
+            ? "ca-app-pub-3940256099942544/9214589741"
+            : "ca-app-pub-7138311889196067/3355094444");
+        adView.setAdSize(AdSize.BANNER);
+        adView.setVisibility(View.GONE);
+        adView.setAdListener(new AdListener() {
+            @Override public void onAdLoaded() { adView.setVisibility(View.VISIBLE); }
+            @Override public void onAdFailedToLoad(LoadAdError error) { adView.setVisibility(View.GONE); }
+        });
+        shell.addView(adView, new LinearLayout.LayoutParams(-1, -2));
+        setContentView(shell);
+        new Thread(() -> MobileAds.initialize(this, status ->
+            runOnUiThread(() -> {
+                if (adView != null) adView.loadAd(new AdRequest.Builder().build());
+            }))).start();
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setDomStorageEnabled(true);
         webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
@@ -63,6 +95,7 @@ public final class MainActivity extends Activity {
             @Override public void onPageFinished(WebView view, String url) {
                 pageLoaded = true;
                 deliverPendingCallIntent();
+                deliverPendingSeller();
                 sendSavedToken();
                 checkFirebaseToken();
             }
@@ -101,9 +134,44 @@ public final class MainActivity extends Activity {
                 }
             }
         });
-        webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
+        String initialUrl = "https://appassets.androidplatform.net/assets/index.html";
+        if (pendingSeller != null) {
+            initialUrl += "?chat=" + pendingSeller;
+            pendingSeller = null;
+        }
+        webView.loadUrl(initialUrl);
     }
 
+
+    private void captureSellerIntent(Intent intent) {
+        if (intent == null || intent.getData() == null) return;
+        Uri link = intent.getData();
+        String name = null;
+        if ("darkchat".equalsIgnoreCase(link.getScheme()) && "seller".equalsIgnoreCase(link.getHost())) {
+            name = link.getLastPathSegment();
+        } else if ("https".equalsIgnoreCase(link.getScheme())
+                && "darkchatdownload.netlify.app".equalsIgnoreCase(link.getHost())) {
+            name = link.getQueryParameter("chat");
+            if ((name == null || name.isEmpty()) && link.getPath() != null
+                    && link.getPath().matches("/chat/[a-zA-Z0-9_.]{3,32}/?")) {
+                String[] path = link.getPath().split("/");
+                if (path.length >= 3) name = path[2];
+            }
+        }
+        if (name != null && name.matches("[a-zA-Z0-9_.]{3,32}")) {
+            pendingSeller = name.toLowerCase(java.util.Locale.ROOT);
+        }
+    }
+
+    private void deliverPendingSeller() {
+        if (!pageLoaded || webView == null || pendingSeller == null) return;
+        final String username = pendingSeller;
+        pendingSeller = null;
+        final String dest = "https://darkchatdownload.netlify.app/?chat=" + username;
+        runOnUiThread(() -> webView.evaluateJavascript(
+            "window.DCChatReceiveDeepLink && window.DCChatReceiveDeepLink(" + JSONObject.quote(dest) + ");",
+            null));
+    }
 
     private void captureIncomingCallIntent(Intent intent) {
         if (intent == null) return;
@@ -132,7 +200,9 @@ public final class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         captureIncomingCallIntent(intent);
+        captureSellerIntent(intent);
         deliverPendingCallIntent();
+        deliverPendingSeller();
     }
 
     private void sendPushStatus(String status, String message) {
@@ -215,11 +285,13 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        if (adView != null) adView.resume();
         active = this;
         if (pageLoaded) { sendSavedToken(); checkFirebaseToken(); }
     }
 
     @Override protected void onPause() {
+        if (adView != null) adView.pause();
         if (active == this) active = null;
         super.onPause();
     }
@@ -231,6 +303,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         if (active == this) active = null;
+        if (adView != null) { adView.destroy(); adView = null; }
         if (webView != null) webView.destroy();
         super.onDestroy();
     }
