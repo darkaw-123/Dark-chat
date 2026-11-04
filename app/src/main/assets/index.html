@@ -914,9 +914,9 @@ document.addEventListener('submit',e=>{const f=e.target.closest('#dc-store-root 
 document.addEventListener('change',e=>{const b=e.target.closest('#dc-store-root [data-s=status]');if(b)change(b)});
 sb.auth.onAuthStateChange((event,session)=>{
  if(event==='SIGNED_OUT'){settings=null;stores=[];myStore=null;cart=[];view='browse';if(orderChannel){sb.removeChannel(orderChannel);orderChannel=null}}
- if(event==='SIGNED_IN'&&session)setTimeout(async()=>{try{const {data}=await sb.from('dc_store_settings').select('*').eq('id','global').single();settings=data;if(typeof tab!=='undefined'&&tab==='news')renderNewsAgain()}catch(_){}},500)
+ if((event==='SIGNED_IN'||event==='INITIAL_SESSION')&&session)setTimeout(async()=>{try{const {data}=await sb.from('dc_store_settings').select('*').eq('id','global').single();settings=data;if(typeof tab!=='undefined'&&tab==='news')renderNewsAgain()}catch(_){}},500)
 });
-function renderNewsAgain(){try{if(typeof render==='function')render()}catch(_){}}
+function renderNewsAgain(){try{if(typeof window.render==='function')window.render()}catch(_){}}
 })();
 </script>
 </body></html>
