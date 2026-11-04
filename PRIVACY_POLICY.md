@@ -19,6 +19,16 @@ Dark Chat ("the App," "we," "our," or "us") is a messaging and communication app
 
 **Permissions.** Depending on which features you use, Dark Chat may request access to your microphone (voice messages and calls), camera (video calls), files or selected media (attachments), and Android notifications. These permissions can be controlled through your device settings. If you deny a permission, the corresponding feature may not work.
 
+## Marketplace, Store and Order Information (Dark Chat v1.5)
+
+Dark Chat includes an optional paid storefront activation feature. If you request a storefront, we collect your account ID, selected payment method, payment transaction reference, request status, and review dates. For JazzCash, payments are made outside the App and **a platform administrator manually checks payment before granting store access**. A transaction reference alone does not prove a payment occurred. Google Pay is not an automatically verified checkout method unless a genuine merchant payment integration is separately configured and confirmed.
+
+Store owners may publish business names, greetings, product descriptions, categories, prices and promotional product photographs. This information is visible to other signed-in users. The C Anyway feature can automatically respond to incoming private chat messages using a store owner's configured greeting and keyword responses.
+
+When you order a product, we collect the selected product, quantity, your name, phone number, delivery address, optional instructions, order status and time. Your order details become visible to the relevant store owner and platform administrators, so they can handle the order. Store owners are independently responsible for how they use customer information in fulfilling orders. Only provide contact and delivery information when necessary.
+
+Dark Chat may display labeled sponsored banners in its announcements area. These may link to an external third-party website. If third-party advertising networks are activated in a future update, their SDKs and advertising data practices will be disclosed here before deployment. Storing an advertising publisher ID does not itself activate a network SDK.
+
 ## 2. Why we use information
 
 We use the information described above to:
