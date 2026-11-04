@@ -55,11 +55,11 @@ jobs:
         shell: bash
         run: |
           test -s app/src/main/assets/dark_chat_logo_new.webp.b64
-          mkdir -p app/src/main/res/drawable
-          rm -f app/src/main/res/drawable/dark_chat_logo.png app/src/main/res/drawable/dark_chat_logo.jpg app/src/main/res/drawable/dark_chat_logo.webp
-          base64 --decode app/src/main/assets/dark_chat_logo_new.webp.b64 > app/src/main/res/drawable/dark_chat_logo.webp
-          file app/src/main/res/drawable/dark_chat_logo.webp
-          test "$(wc -c < app/src/main/res/drawable/dark_chat_logo.webp)" -gt 2500
+          find app/src/main/res -type f -name 'dark_chat_logo.*' -delete
+          mkdir -p app/src/main/res/drawable-nodpi
+          base64 --decode app/src/main/assets/dark_chat_logo_new.webp.b64 > app/src/main/res/drawable-nodpi/dark_chat_logo.webp
+          file app/src/main/res/drawable-nodpi/dark_chat_logo.webp
+          test "$(wc -c < app/src/main/res/drawable-nodpi/dark_chat_logo.webp)" -gt 2500
       - name: Validate Android app label
         run: grep -F 'android:label="Dark Chat"' app/src/main/AndroidManifest.xml
       - name: Build installable debug APK
