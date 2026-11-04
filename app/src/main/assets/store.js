@@ -5,7 +5,7 @@ const h=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt
 const money=n=>'Rs. '+Number(n||0).toLocaleString('en-PK',{maximumFractionDigits:2});
 const photo=p=>p?sb.storage.from('darkchat-store-images').getPublicUrl(p).data.publicUrl:'';
 const isHttps=u=>/^https:\/\//i.test(String(u||''));
-let settings=null,stores=[],myStore=null,cats=[],products=[],rules=[],orders=[],requests=[],view='my',picked=null,cart=[],loading=false,orderChannel=null,requestChannel=null;
+let settings=null,stores=[],myStore=null,cats=[],products=[],rules=[],orders=[],requests=[],view='my',picked=null,cart=[],loading=false,orderChannel=null,requestChannel=null,openKey=null,openCat=null,editingCategory=null,editingProduct=null;
 function root(){return document.getElementById('dc-store-root')}
 function btn(action,text,extra){return '<button type="button" class="btn '+(extra||'g')+'" data-s="'+action+'">'+text+'</button>'}
 function card(body){return '<section class="dcsc">'+body+'</section>'}
@@ -16,26 +16,26 @@ function tabs(){if(!myStore)return view==='browse'||view==='cart'?'<div class="d
 function readCart(){try{cart=JSON.parse(localStorage.getItem('dcstore_cart_'+me.id)||'[]');if(!Array.isArray(cart))cart=[]}catch(_){cart=[]}}
 function saveCart(){try{localStorage.setItem('dcstore_cart_'+me.id,JSON.stringify(cart))}catch(_){}}
 function confirmErr(error){if(error)throw new Error(error.message)}
+
 async function fetchData(){
- const [ss,st,pr,req]=await Promise.all([
+ const [ss,st,pr,req,allCats,allKeys]=await Promise.all([
   sb.from('dc_store_settings').select('*').eq('id','global').maybeSingle(),
   sb.from('dc_stores').select('*').eq('active',true).order('created_at',{ascending:false}),
-  sb.from('dc_store_products').select('*').eq('active',true).order('created_at',{ascending:false}).limit(500),
-  sb.from('dc_store_requests').select('*').eq('user_id',me.id).order('created_at',{ascending:false}).limit(4)
+  sb.from('dc_store_products').select('*').eq('active',true).order('created_at',{ascending:false}).limit(1200),
+  sb.from('dc_store_requests').select('*').eq('user_id',me.id).order('created_at',{ascending:false}).limit(4),
+  sb.from('dc_store_categories').select('*').order('created_at',{ascending:true}).limit(1200),
+  sb.from('dc_store_keywords').select('*').order('created_at',{ascending:true}).limit(1200)
  ]);
- confirmErr(ss.error);confirmErr(st.error);confirmErr(pr.error);confirmErr(req.error);
+ for(const r of [ss,st,pr,req,allCats,allKeys])confirmErr(r.error);
  settings=ss.data||{store_price_pkr:1500,jazzcash_number:'03067008420',jazzcash_account_name:'Abdul Waheed'};
  stores=st.data||[];products=pr.data||[];requests=req.data||[];
+ cats=allCats.data||[];rules=allKeys.data||[];
  myStore=stores.find(x=>x.owner_id===me.id)||null;
  if(myStore){
-  const [c,k,o]=await Promise.all([
-   sb.from('dc_store_categories').select('*').eq('owner_id',me.id).order('created_at'),
-   sb.from('dc_store_keywords').select('*').eq('owner_id',me.id).order('created_at'),
-   sb.from('dc_store_orders').select('*').eq('store_owner_id',me.id).order('created_at',{ascending:false}).limit(150)
-  ]);
-  confirmErr(c.error);confirmErr(k.error);confirmErr(o.error);
-  cats=c.data||[];rules=k.data||[];orders=o.data||[];
- }
+   const {data,error}=await sb.from('dc_store_orders').select('*').eq('store_owner_id',me.id)
+    .order('created_at',{ascending:false}).limit(150);
+   confirmErr(error);orders=data||[];
+ }else{orders=[];openKey=null;openCat=null}
  if(!picked&&stores.length)picked=stores[0].owner_id;
 }
 function picture(path){return path?'<img class="dcspic" alt="Store item" src="'+h(photo(path))+'" loading="lazy">':'<div class="dcsempty">🛍️</div>'}
@@ -43,13 +43,28 @@ function itemTile(p){
  return '<div class="dcsproduct">'+picture(p.image_path)+'<b>'+h(p.name)+'</b><span class="dcsprice">'+money(p.price_pkr)+'</span>'+
  '<p class="dcsdim">'+h(p.description).slice(0,160)+'</p><div class="dcsactions"><button data-s="add" data-id="'+p.id+'" class="btn g s">Add to Cart</button><button data-s="buy" data-id="'+p.id+'" class="btn s">Buy Now</button></div></div>';
 }
+
 function renderBrowse(){
- const listing=stores.map(s=>'<button class="dcsstore" data-s="pick" data-id="'+s.owner_id+'">🏪 <b>'+h(s.store_name)+'</b><small>'+h(s.description).slice(0,100)+'</small></button>').join('');
- const s=stores.find(x=>x.owner_id===picked);
- const selectedProducts=products.filter(p=>p.owner_id===picked);
- return card('<h3>Explore Stores</h3><p class="dcsdim">Shop directly inside Dark Chat. Orders go to the seller.</p><div class="dcsstores">'+(listing||'<p>No stores have opened yet.</p>')+'</div>')+
- (s?card('<h3>🏪 '+h(s.store_name)+'</h3><p>'+h(s.description)+'</p><p class="dcsdim">C Anyway — chat automation available if the owner enables it.</p><div class="dcsgrid">'+
- (selectedProducts.map(itemTile).join('')||'<p>No products yet.</p>')+'</div>'):'');
+ const listing=stores.map(s=>'<button class="dcsstore" data-s="pick" data-id="'+s.owner_id+'">🏪 <b>'+h(s.store_name)+'</b><small>'+h(s.description).slice(0,90)+'</small></button>').join('');
+ const shop=stores.find(s=>s.owner_id===picked);
+ if(!shop)return card('<h3>Explore Stores</h3><p>No stores are available yet.</p>');
+ const keys=rules.filter(k=>k.owner_id===picked);
+ const catalogue=keys.map(k=>{
+   const linked=cats.filter(c=>c.owner_id===picked&&c.keyword_id===k.id);
+   return '<div class="dcskw"><div class="dcslabel"><b>🔑 '+h(k.keyword)+'</b><span>'+linked.length+' categories</span></div>'+
+   (k.response_text?'<p class="dcsdim">'+h(k.response_text)+'</p>':'')+
+   linked.map(c=>{
+     const items=products.filter(p=>p.category_id===c.id&&p.owner_id===picked);
+     return '<div class="dcscat"><div class="dcslabel"><b>📂 '+h(c.name)+'</b><span>'+items.length+' products</span></div>'+
+       (c.image_path?picture(c.image_path):'')+
+       '<div class="dcsgrid">'+(items.map(itemTile).join('')||'<p class="dcsdim">No products in this category yet.</p>')+'</div></div>';
+   }).join('')+
+   (!linked.length?'<p class="dcsdim">No categories in this keyword yet.</p>':'')+'</div>';
+ }).join('');
+ return card('<h3>Explore Stores</h3><p class="dcsdim">Shop securely inside Dark Chat. Orders are sent directly to the seller.</p><div class="dcsstores">'+listing+'</div>')+
+ card('<h3>🏪 '+h(shop.store_name)+'</h3><p>'+h(shop.description)+'</p>'+
+ '<p class="dcsdim">Browse Keywords → Categories → Products.</p>'+
+ (catalogue||'<p class="dcsdim">This seller has not added keywords yet.</p>'));
 }
 function requestPanel(){
  const last=requests[0],pending=last?.status==='pending',rejected=last?.status==='rejected';
@@ -76,41 +91,87 @@ function requestPanel(){
   '<div class="dcsnotice">🔒 Your store name, products, categories, automated replies and order dashboard appear <b>only after the administrator approves your request.</b></div>')+
   footer+'</div>';
 }
+
 function renderMy(){
  if(!myStore)return requestPanel();
- const addcat=card('<h3>Categories</h3><form data-f="category">'+input('name','Category name','',true,80)+
- '<label>Category photo (optional)</label><input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif">'+
- '<button type="submit" class="btn s">Add Category</button></form><div class="dcslist">'+cats.map(c=>
- '<div>'+picture(c.image_path)+'<span>'+h(c.name)+'</span><button class="btn r s" data-s="delcat" data-id="'+c.id+'">Remove</button></div>').join('')+'</div>');
- const addprod=card('<h3>Products</h3><form data-f="product">'+input('name','Product name','',true,120)+
- input('price_pkr','Price in Pakistani rupees','',true,15)+
- area('description','Description','')+
- '<label>Category</label><select name="category_id"><option value="">Uncategorised</option>'+cats.map(c=>'<option value="'+c.id+'">'+h(c.name)+'</option>').join('')+'</select>'+
- '<label>Product photo</label><input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif">'+
- '<button type="submit" class="btn s">Add Product</button></form>'+
- '<div class="dcsgrid">'+products.filter(p=>p.owner_id===me.id).map(p=>'<div class="dcsproduct">'+picture(p.image_path)+'<b>'+h(p.name)+'</b><span>'+money(p.price_pkr)+'</span><button class="btn r s" data-s="delprod" data-id="'+p.id+'">Remove</button></div>').join('')+'</div>');
- const keywords=card('<h3>C Anyway — Auto Reply Keywords</h3><p class="dcsdim">When somebody sends you a private message, they receive your welcome menu, or the matching keyword response. Example: 1 → product, 2 → category, hi → message.</p>'+
- '<form data-f="keyword">'+input('keyword','Keyword (e.g. 1, 2, price, hi)','',true,40)+
- '<label>Response type</label><select name="response_type"><option value="text">Custom text / link</option><option value="product">Product details</option><option value="category">Category products</option></select>'+
- area('response_text','Response text or link (for Custom text)','')+
- '<label>Related product or category</label><select name="target_id"><option value="">None / custom text</option>'+
- cats.map(c=>'<option value="'+c.id+'">Category: '+h(c.name)+'</option>').join('')+
- products.filter(p=>p.owner_id===me.id).map(p=>'<option value="'+p.id+'">Product: '+h(p.name)+'</option>').join('')+
- '</select><button type="submit" class="btn s">Save Keyword</button></form><div class="dcslist">'+
- rules.map(k=>'<div><span><b>'+h(k.keyword)+'</b> → '+h(k.response_type)+' · '+h(k.response_text).slice(0,65)+'</span><button class="btn r s" data-s="delkey" data-id="'+k.id+'">Delete</button></div>').join('')+'</div>');
- const orderList=card('<h3>New Orders <span class="chip">'+orders.length+'</span></h3><p class="dcsdim">Orders appear here automatically when someone checks out.</p>'+
- orders.map(o=>'<div class="dcsorder"><strong>'+h((products.find(p=>p.id===o.product_id)||{}).name||'Product')+'</strong> · '+o.quantity+
- ' × '+money(o.unit_price_pkr)+'<p>'+h(o.customer_name)+' · '+h(o.customer_phone)+'<p>'+h(o.delivery_address)+'</p>'+
- '<small>Order '+h(o.id.slice(0,8))+' · '+h(o.created_at.slice(0,10))+'</small>'+
- '<label>Status</label><select data-s="status" data-id="'+o.id+'">'+['new','accepted','shipped','completed','cancelled'].map(st=>'<option value="'+st+'" '+(o.status===st?'selected':'')+'>'+st+'</option>').join('')+'</select></div>').join('')+
- (orders.length?'':'<p>No orders yet.</p>'));
- return card('<h3>My Store — '+h(myStore.store_name)+'</h3><form data-f="profile">'+
- input('store_name','Store name',myStore.store_name,true,70)+
- area('description','About your store',myStore.description)+
- area('welcome_message','C Anyway welcome reply',myStore.welcome_message)+
- '<label><input type="checkbox" name="auto_reply_enabled" '+(myStore.auto_reply_enabled?'checked':'')+'> Enable C Anyway automatic replies</label>'+
- '<button type="submit" class="btn">Save Store Profile</button></form>')+
- addcat+addprod+keywords+orderList;
+ const owner=me.id,mine=rules.filter(k=>k.owner_id===owner);
+ const keyCreate=card('<div class="dcslabel"><h3>🔑 Step 1: Add Keyword</h3><span>Start here</span></div>'+
+ '<p class="dcsdim">Create a keyword first (e.g. 1, 2, offers, menu). Add categories inside it later. No category needs to exist in advance.</p>'+
+ '<form data-f="keyword-create">'+input('keyword','New keyword','',true,40)+
+ area('response_text','Optional automatic reply or link','')+
+ '<button class="btn" type="submit">＋ Add Keyword</button></form>');
+ const categoryView=c=>{
+   const expanded=openCat===c.id,editing=editingCategory===c.id;
+   const mineProducts=products.filter(p=>p.owner_id===owner&&p.category_id===c.id);
+   return '<div class="dcscat"><div class="dcslabel">'+
+      '<button class="btn g s" type="button" data-s="opencat" data-id="'+c.id+'">📂 '+h(c.name)+' · '+mineProducts.length+' items '+(expanded?'▴':'▾')+'</button>'+
+      '<button class="btn g s" type="button" data-s="editcat" data-id="'+c.id+'">Edit</button>'+
+      '<button class="btn r s" type="button" data-s="delcat" data-id="'+c.id+'">Delete</button></div>'+
+      (c.image_path?picture(c.image_path):'')+
+      (editing?'<form data-f="category-edit"><input type="hidden" name="id" value="'+c.id+'">'+
+        input('name','Category name',c.name,true,80)+
+        '<label>Change category photo (optional)</label><input name="image" type="file" accept="image/*">'+
+        '<button class="btn s" type="submit">Save Category</button></form>':'')+
+      (expanded?'<div class="dcsinside"><div class="dcslabel"><b>Step 3: Products in '+h(c.name)+'</b></div>'+
+         '<form data-f="product-create"><input type="hidden" name="category_id" value="'+c.id+'">'+
+         input('name','Product name','',true,120)+input('price_pkr','Price (PKR)','',true,15)+
+         area('description','Description','')+
+         '<label>Product photo</label><input name="image" type="file" accept="image/*">'+
+         '<button class="btn s" type="submit">＋ Add Product</button></form>'+
+         '<div class="dcsgrid">'+(mineProducts.map(p=>{
+           const editingP=editingProduct===p.id;
+           return '<div class="dcsproduct">'+picture(p.image_path)+'<b>'+h(p.name)+'</b><span class="dcsprice">'+money(p.price_pkr)+'</span>'+
+              '<p class="dcsdim">'+h(p.description)+'</p>'+
+              '<div class="dcsactions"><button class="btn g s" data-s="editprod" data-id="'+p.id+'">Edit</button>'+
+              '<button class="btn r s" data-s="delprod" data-id="'+p.id+'">Remove</button></div>'+
+              (editingP?'<form data-f="product-edit"><input type="hidden" name="id" value="'+p.id+'">'+
+                input('name','Product name',p.name,true,120)+input('price_pkr','Price (PKR)',p.price_pkr,true,15)+
+                area('description','Description',p.description)+
+                '<label>Replace photo (optional)</label><input name="image" type="file" accept="image/*">'+
+                '<button class="btn s" type="submit">Save Product</button></form>':'')+
+           '</div>';
+         }).join('')||'<p class="dcsdim">No products yet. Add the first one above.</p>')+'</div></div>':'')+
+   '</div>';
+ };
+ const keywordView=k=>{
+   const expanded=openKey===k.id;
+   const linked=cats.filter(c=>c.owner_id===owner&&c.keyword_id===k.id);
+   return '<div class="dcskw"><div class="dcslabel"><button class="btn g s" type="button" data-s="openkey" data-id="'+k.id+'">🔑 '+h(k.keyword)+' · '+linked.length+' categories '+(expanded?'▴':'▾')+'</button>'+
+    '<button class="btn r s" type="button" data-s="delkey" data-id="'+k.id+'">Delete</button></div>'+
+    (expanded?'<div class="dcsinside"><h4>Edit Keyword</h4>'+
+      '<form data-f="keyword-edit"><input type="hidden" name="id" value="'+k.id+'">'+
+        input('keyword','Keyword',k.keyword,true,40)+area('response_text','Reply text or link (optional)',k.response_text)+
+        '<button class="btn s" type="submit">Save Keyword Changes</button></form>'+
+      '<div class="dcslabel"><b>📂 Step 2: Add Categories</b><span>Inside '+h(k.keyword)+'</span></div>'+
+      '<p class="dcsdim">Categories are saved directly under this keyword. Add or edit them whenever you want.</p>'+
+      '<form data-f="category-create"><input type="hidden" name="keyword_id" value="'+k.id+'">'+
+         input('name','Category name','',true,80)+
+         '<label>Category photo</label><input name="image" type="file" accept="image/*">'+
+         '<button class="btn" type="submit">＋ Add Category to '+h(k.keyword)+'</button></form>'+
+       '<div class="dcsstack">'+(linked.map(categoryView).join('')||'<p class="dcsdim">No categories yet. Add one here, then put products inside it.</p>')+'</div>'+
+       '</div>':'')+
+     '</div>';
+ };
+ const keyList=card('<h3>Your Keywords <span class="chip">'+mine.length+'</span></h3>'+
+  '<p class="dcsdim">Open any keyword to edit it, add its own categories, and manage products inside each category.</p>'+
+  (mine.map(keywordView).join('')||'<div class="dcsnotice">Create your first keyword above. Categories and products are locked until you create one.</div>'));
+ const ordersCard=card('<h3>📦 Seller Orders <span class="chip">'+orders.length+'</span></h3>'+
+ '<p class="dcsdim">Orders submitted by buyers appear below.</p>'+
+ (orders.map(o=>'<div class="dcsorder"><b>'+h((products.find(p=>p.id===o.product_id)||{}).name||'Product')+'</b> · '+o.quantity+' × '+money(o.unit_price_pkr)+
+  '<div>'+h(o.customer_name)+' · '+h(o.customer_phone)+'</div>'+
+  '<div>'+h(o.delivery_address)+'</div><small>'+h(o.created_at.slice(0,10))+' · '+h(o.id.slice(0,8))+'</small>'+
+  '<label>Order status</label><select data-s="status" data-id="'+o.id+'">'+
+   ['new','accepted','shipped','completed','cancelled'].map(st=>'<option value="'+st+'" '+(o.status===st?'selected':'')+'>'+st+'</option>').join('')+
+  '</select></div>').join('')||'<p class="dcsdim">No orders yet.</p>'));
+ const profileCard=card('<h3>⚙ Store Settings</h3><form data-f="profile">'+
+  input('store_name','Store name',myStore.store_name,true,70)+
+  area('description','Store description',myStore.description)+
+  area('welcome_message','C Anyway welcome message',myStore.welcome_message)+
+  '<label><input type="checkbox" name="auto_reply_enabled" '+(myStore.auto_reply_enabled?'checked':'')+'> Enable C Anyway keyword replies in private chat</label>'+
+  '<button class="btn g" type="submit">Save Store Settings</button></form>');
+ return '<div class="dcsflow">'+card('<div class="dcslabel"><h3>✅ Store Activated</h3><span>Seller dashboard</span></div>'+
+ '<h2>🏪 '+h(myStore.store_name)+'</h2><p>Build your store in this order: <b>Keyword → Category → Product</b>. All changes remain editable.</p>')+
+ keyCreate+keyList+ordersCard+profileCard+'</div>';
 }
 function cartProducts(){return cart.map(item=>({item,product:products.find(p=>p.id===item.id)})).filter(x=>x.product)}
 function renderCart(){
@@ -148,82 +209,124 @@ async function upload(file,type){
  const {error}=await sb.storage.from('darkchat-store-images').upload(path,file,{contentType:file.type});
  confirmErr(error);return path;
 }
+
 async function submit(form){
  const type=form.dataset.f,d=new FormData(form),val=n=>String(d.get(n)||'').trim(),owner=me.id;
  const submitBtn=form.querySelector('[type=submit]');if(submitBtn)submitBtn.disabled=true;
  try{
   if(type==='request'){
    if(requests.some(x=>x.status==='pending'))throw new Error('You already have a pending request. Wait for admin approval.');
-   const reference=val('transfer_reference');
-   if(!reference)throw new Error('Enter a transaction reference');
-   const method=val('payment_method');
-   if(method==='google_pay'&&!isHttps(settings.google_pay_checkout_url))throw new Error('Google Pay is not configured');
+   const reference=val('transfer_reference'),method=val('payment_method');
+   if(!reference)throw new Error('Enter a valid payment reference.');
+   if(method==='google_pay'&&!isHttps(settings.google_pay_checkout_url))throw new Error('Google Pay is not configured.');
    const {error}=await sb.from('dc_store_requests').insert({user_id:owner,payment_method:method,transfer_reference:reference});
-   confirmErr(error);message('Store request submitted. Admin must verify your payment.');
+   confirmErr(error);message('Payment request sent to admin for verification.');
   }else if(type==='profile'){
-   const {error}=await sb.from('dc_stores').update({
-    store_name:val('store_name'),description:val('description'),
-    welcome_message:val('welcome_message'),
-    auto_reply_enabled:d.has('auto_reply_enabled')
-   }).eq('owner_id',owner);confirmErr(error);message('Store profile saved');
-  }else if(type==='category'){
+   const {error}=await sb.from('dc_stores').update({store_name:val('store_name'),
+    description:val('description'),welcome_message:val('welcome_message'),
+    auto_reply_enabled:d.has('auto_reply_enabled')}).eq('owner_id',owner);
+   confirmErr(error);message('Store settings saved.');
+  }else if(type==='keyword-create'){
+   const {data,error}=await sb.from('dc_store_keywords').insert({
+    owner_id:owner,keyword:val('keyword'),response_type:'menu',response_text:val('response_text'),
+    target_id:null
+   }).select('id').single();
+   confirmErr(error);openKey=data.id;openCat=null;message('Keyword created. Now add categories inside it.');
+  }else if(type==='keyword-edit'){
+   const {error}=await sb.from('dc_store_keywords').update({keyword:val('keyword'),
+    response_type:'menu',response_text:val('response_text'),target_id:null
+   }).eq('id',val('id')).eq('owner_id',owner);
+   confirmErr(error);openKey=val('id');message('Keyword updated.');
+  }else if(type==='category-create'){
+   const keyword_id=val('keyword_id');
+   if(!rules.some(x=>x.id===keyword_id&&x.owner_id===owner))throw new Error('Choose a valid keyword first.');
    const path=await upload(d.get('image'),'categories');
-   const {error}=await sb.from('dc_store_categories').insert({owner_id:owner,name:val('name'),image_path:path});
-   confirmErr(error);message('Category added');
-  }else if(type==='product'){
-   const price=Number(val('price_pkr'));if(!Number.isFinite(price)||price<=0)throw new Error('Enter a valid price');
-   const path=await upload(d.get('image'),'products');
-   const {error}=await sb.from('dc_store_products').insert({owner_id:owner,
-    name:val('name'),price_pkr:price,description:val('description'),
-    category_id:val('category_id')||null,image_path:path});
-   confirmErr(error);message('Product added');
-  }else if(type==='keyword'){
-   const keyword=val('keyword'),rt=val('response_type'),target=val('target_id');
-   const row={owner_id:owner,keyword,response_type:rt,response_text:val('response_text'),target_id:rt==='text'?null:target||null};
-   if(rt!=='text'&&!row.target_id)throw new Error('Choose a linked product or category');
-   if(rt==='text'&&!row.response_text)throw new Error('Enter the automatic reply text or link');
-   const {error}=await sb.from('dc_store_keywords').upsert(row,{onConflict:'owner_id,keyword'});
-   confirmErr(error);message('C Anyway keyword saved');
+   const {data,error}=await sb.from('dc_store_categories').insert({
+    owner_id:owner,keyword_id,name:val('name'),image_path:path
+   }).select('id').single();
+   confirmErr(error);openKey=keyword_id;openCat=data.id;message('Category added inside keyword.');
+  }else if(type==='category-edit'){
+   const id=val('id'),existing=cats.find(x=>x.id===id&&x.owner_id===owner);
+   if(!existing)throw new Error('Category not found.');
+   const changed=await upload(d.get('image'),'categories');
+   const update={name:val('name')};if(changed)update.image_path=changed;
+   const {error}=await sb.from('dc_store_categories').update(update).eq('id',id).eq('owner_id',owner);
+   confirmErr(error);editingCategory=null;openKey=existing.keyword_id;openCat=id;message('Category saved.');
+  }else if(type==='product-create'||type==='product-edit'){
+   const price=Number(val('price_pkr'));
+   if(!Number.isFinite(price)||price<=0||price>10000000)throw new Error('Enter a valid product price.');
+   const changed=await upload(d.get('image'),'products');
+   const update={name:val('name'),price_pkr:price,description:val('description')};
+   if(changed)update.image_path=changed;
+   if(type==='product-create'){
+     const cat=cats.find(x=>x.id===val('category_id')&&x.owner_id===owner);
+     if(!cat)throw new Error('Create a category inside a keyword first.');
+     const {error}=await sb.from('dc_store_products').insert({
+       ...update,owner_id:owner,category_id:cat.id
+     });
+     confirmErr(error);openKey=cat.keyword_id;openCat=cat.id;message('Product added to category.');
+   }else{
+     const p=products.find(x=>x.id===val('id')&&x.owner_id===owner);
+     if(!p)throw new Error('Product not found.');
+     const {error}=await sb.from('dc_store_products').update(update).eq('id',p.id).eq('owner_id',owner);
+     confirmErr(error);editingProduct=null;
+     const cat=cats.find(x=>x.id===p.category_id);if(cat){openKey=cat.keyword_id;openCat=cat.id}
+     message('Product updated.');
+   }
   }else if(type==='checkout'){
    const items=cartProducts(),name=val('customer_name'),phone=val('customer_phone');
    const address=val('delivery_address'),notes=val('notes');
    if(!items.length)throw new Error('Cart is empty');
-   if(name.length<2||phone.length<7)throw new Error('Name and phone number are required');
+   if(name.length<2||phone.length<7)throw new Error('Full name and phone number are required.');
    const group=crypto.randomUUID();
-   const data=items.map(x=>({
-    checkout_id:group,product_id:x.product.id,store_owner_id:x.product.owner_id,
-    buyer_id:owner,quantity:x.item.quantity,customer_name:name,
-    customer_phone:phone,delivery_address:address,notes:notes
-   }));
+   const data=items.map(x=>({checkout_id:group,product_id:x.product.id,
+    store_owner_id:x.product.owner_id,buyer_id:owner,quantity:x.item.quantity,
+    customer_name:name,customer_phone:phone,delivery_address:address,notes}));
    const {data:placed,error}=await sb.from('dc_store_orders').insert(data).select('id');
    confirmErr(error);cart=[];saveCart();
-   message('Order placed! The seller can view your details in their Orders panel.');
+   message('Order placed! Seller will see it in Orders.');
    (placed||[]).forEach(x=>sb.functions.invoke('darkchat-send-push',{body:{order_id:x.id}}).catch(()=>{}));
    view='browse';
   }
   await render();
  }catch(e){message(e.message||'Request failed',true);if(submitBtn)submitBtn.disabled=false}
 }
+
 async function action(button){
  const op=button.dataset.s,id=button.dataset.id;
  if(['browse','my','cart'].includes(op)){view=op;return render()}
  if(op==='reload')return render();
  if(op==='copy-number'){try{await navigator.clipboard.writeText(settings.jazzcash_number);message('JazzCash number copied.')}catch(_){message('Copy the number shown above.')}return}
  if(op==='pick'){picked=id;return render()}
+ if(op==='openkey'){openKey=(openKey===id?null:id);openCat=null;editingCategory=null;editingProduct=null;return render()}
+ if(op==='opencat'){openCat=(openCat===id?null:id);editingProduct=null;return render()}
+ if(op==='editcat'){editingCategory=(editingCategory===id?null:id);return render()}
+ if(op==='editprod'){editingProduct=(editingProduct===id?null:id);return render()}
  if(op==='add'||op==='buy'){
   const p=products.find(x=>x.id===id);if(!p)return message('Product not found',true);
   if(p.owner_id===me.id)return message('You cannot order your own product',true);
   const existing=cart.find(x=>x.id===id);
   if(existing)existing.quantity=Math.min(99,existing.quantity+1);else cart.push({id,quantity:1});
-  saveCart();message('Added to cart');if(op==='buy'){view='cart';await render()}else{const n=root().querySelector('[data-s=cart]');if(n)n.textContent='Cart ('+cart.reduce((a,x)=>a+x.quantity,0)+')'}
+  saveCart();message('Added to cart');
+  if(op==='buy'){view='cart';await render()}
+  else{const n=root().querySelector('[data-s=cart]');if(n)n.textContent='Cart ('+cart.reduce((a,x)=>a+x.quantity,0)+')'}
   return;
  }
  if(op==='remove'){cart=cart.filter(x=>x.id!==id);saveCart();return render()}
- if(['delcat','delprod','delkey'].includes(op)){
+ if(['delkey','delcat','delprod'].includes(op)){
+  if(op==='delkey'&&cats.some(c=>c.keyword_id===id))return message('Remove all categories from this keyword before deleting it.',true);
+  if(op==='delcat'&&products.some(p=>p.category_id===id))return message('Remove the category products before deleting the category.',true);
   if(!confirm('Delete this item?'))return;
-  const table={delcat:'dc_store_categories',delprod:'dc_store_products',delkey:'dc_store_keywords'}[op];
-  const {error}=await sb.from(table).delete().eq('id',id).eq('owner_id',me.id);
-  if(error)return message(error.message,true);message('Deleted');return render();
+  if(op==='delprod'){
+   // Retain past order integrity. Removing a product hides it from customers without erasing orders.
+   const {error}=await sb.from('dc_store_products').update({active:false}).eq('id',id).eq('owner_id',me.id);
+   if(error)return message(error.message,true);
+  }else{
+   const table=op==='delkey'?'dc_store_keywords':'dc_store_categories';
+   const {error}=await sb.from(table).delete().eq('id',id).eq('owner_id',me.id);
+   if(error)return message(error.message,true);
+  }
+  message('Removed');return render();
  }
 }
 async function change(select){
