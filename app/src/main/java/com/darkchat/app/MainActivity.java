@@ -18,6 +18,7 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
@@ -61,13 +62,21 @@ public final class MainActivity extends Activity {
         adView = new AdView(this);
         final boolean debugBuild = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         adView.setAdUnitId(debugBuild
-            ? "ca-app-pub-3940256099942544/9214589741"
+            ? "ca-app-pub-3940256099942544/6300978111"
             : "ca-app-pub-7138311889196067/3355094444");
         adView.setAdSize(AdSize.BANNER);
-        adView.setVisibility(View.GONE);
+        // Keep the view visible while requesting: hiding an AdView can prevent its first impression.
+        adView.setVisibility(View.VISIBLE);
         adView.setAdListener(new AdListener() {
-            @Override public void onAdLoaded() { adView.setVisibility(View.VISIBLE); }
-            @Override public void onAdFailedToLoad(LoadAdError error) { adView.setVisibility(View.GONE); }
+            @Override public void onAdLoaded() {
+                Log.i("DarkChatAds", "Banner loaded");
+                if (adView != null) adView.setVisibility(View.VISIBLE);
+            }
+            @Override public void onAdFailedToLoad(LoadAdError error) {
+                Log.w("DarkChatAds", "Banner load failed, code=" + error.getCode()
+                    + ", domain=" + error.getDomain() + ", reason=" + error.getMessage());
+                if (adView != null) adView.setVisibility(View.GONE);
+            }
         });
         shell.addView(adView, new LinearLayout.LayoutParams(-1, -2));
         setContentView(shell);
@@ -77,6 +86,8 @@ public final class MainActivity extends Activity {
             }))).start();
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setDomStorageEnabled(true);
+        webView.getSettings().setTextZoom(100);
+        webView.getSettings().setSupportZoom(false);
         webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
         webView.getSettings().setAllowFileAccess(false);
         webView.getSettings().setAllowContentAccess(false);
