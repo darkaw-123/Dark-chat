@@ -4,6 +4,10 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.os.Handler;
+import android.os.Looper;
+import android.widget.TextView;
+import android.view.Gravity;
 import android.content.pm.ApplicationInfo;
 import android.view.View;
 import android.widget.LinearLayout;
@@ -36,6 +40,13 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity {
     private WebView webView;
     private AdView adView;
+    private LinearLayout bannerBox;
+    private TextView bannerStatus;
+    private boolean bannerLoaded=false, bannerIsDebug=false, bannerReady=false;
+    private long lastBannerLoadMs=0L;
+    private int bannerFailures=0;
+    private final Handler bannerHandler=new Handler(Looper.getMainLooper());
+    private final Runnable bannerRetry=() -> requestBanner(false);
     private String pendingSeller;
     private ValueCallback<Uri[]> filePicker;
     private PermissionRequest pendingWebPermission;
@@ -58,31 +69,65 @@ public final class MainActivity extends Activity {
         LinearLayout shell = new LinearLayout(this);
         shell.setOrientation(LinearLayout.VERTICAL);
         shell.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1));
-        // Native Android AdMob banner: test ads on debug, publisher ads on signed release.
-        adView = new AdView(this);
-        final boolean debugBuild = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
-        adView.setAdUnitId(debugBuild
-            ? "ca-app-pub-3940256099942544/6300978111"
-            : "ca-app-pub-7138311889196067/3355094444");
+
+        // Banner below the WebView. Debug uses Google's official test ad unit.
+        bannerIsDebug=(getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE)!=0;
+        bannerBox=new LinearLayout(this);
+        bannerBox.setOrientation(LinearLayout.VERTICAL);
+        bannerBox.setGravity(Gravity.CENTER_HORIZONTAL);
+        bannerBox.setBackgroundColor(0xFF0B0A14);
+        bannerStatus=new TextView(this);
+        bannerStatus.setTextSize(11);
+        bannerStatus.setTextColor(0xFFD2C5ED);
+        bannerStatus.setGravity(Gravity.CENTER);
+        bannerStatus.setMaxLines(2);
+        bannerStatus.setPadding(12,5,12,6);
+        bannerStatus.setText("Checking AdMob test banner...");
+        bannerStatus.setVisibility(bannerIsDebug?View.VISIBLE:View.GONE);
+        bannerStatus.setOnClickListener(v -> {
+            bannerFailures=0;
+            bannerHandler.removeCallbacks(bannerRetry);
+            requestBanner(true);
+        });
+        adView=new AdView(this);
         adView.setAdSize(AdSize.BANNER);
-        // Keep the view visible while requesting: hiding an AdView can prevent its first impression.
-        adView.setVisibility(View.VISIBLE);
+        adView.setAdUnitId(bannerIsDebug
+            ?"ca-app-pub-3940256099942544/6300978111"
+            :"ca-app-pub-7138311889196067/3355094444");
+        adView.setVisibility(View.GONE);
         adView.setAdListener(new AdListener() {
             @Override public void onAdLoaded() {
-                Log.i("DarkChatAds", "Banner loaded");
-                if (adView != null) adView.setVisibility(View.VISIBLE);
+                bannerLoaded=true;
+                bannerFailures=0;
+                bannerHandler.removeCallbacks(bannerRetry);
+                Log.i("DarkChatAds","Banner loaded");
+                if(adView!=null)adView.setVisibility(View.VISIBLE);
+                if(bannerStatus!=null)bannerStatus.setVisibility(View.GONE);
+                if(bannerBox!=null)bannerBox.setVisibility(View.VISIBLE);
             }
             @Override public void onAdFailedToLoad(LoadAdError error) {
-                Log.w("DarkChatAds", "Banner load failed, code=" + error.getCode()
-                    + ", domain=" + error.getDomain() + ", reason=" + error.getMessage());
-                if (adView != null) adView.setVisibility(View.GONE);
+                bannerLoaded=false;
+                bannerFailures++;
+                final String issue="AdMob error "+error.getCode()+": "+error.getMessage();
+                Log.w("DarkChatAds",issue+" | "+error.getDomain());
+                if(adView!=null)adView.setVisibility(View.GONE);
+                if(bannerIsDebug&&bannerStatus!=null){
+                    bannerStatus.setText(issue+" · Tap to retry");
+                    bannerStatus.setVisibility(View.VISIBLE);
+                }else if(bannerBox!=null)bannerBox.setVisibility(View.GONE);
+                int seconds=Math.min(180,30*Math.min(bannerFailures,6));
+                bannerHandler.removeCallbacks(bannerRetry);
+                bannerHandler.postDelayed(bannerRetry,seconds*1000L);
             }
         });
-        shell.addView(adView, new LinearLayout.LayoutParams(-1, -2));
+        bannerBox.addView(adView,new LinearLayout.LayoutParams(-2,-2));
+        bannerBox.addView(bannerStatus,new LinearLayout.LayoutParams(-1,-2));
+        shell.addView(bannerBox,new LinearLayout.LayoutParams(-1,-2));
         setContentView(shell);
-        new Thread(() -> MobileAds.initialize(this, status ->
+        new Thread(() -> MobileAds.initialize(this,status->
             runOnUiThread(() -> {
-                if (adView != null) adView.loadAd(new AdRequest.Builder().build());
+                bannerReady=true;
+                requestBanner(true);
             }))).start();
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setDomStorageEnabled(true);
@@ -153,6 +198,30 @@ public final class MainActivity extends Activity {
         webView.loadUrl(initialUrl);
     }
 
+
+    private void requestBanner(boolean force){
+        if(!bannerReady||adView==null||isFinishing())return;
+        long now=System.currentTimeMillis();
+        if(!force&&now-lastBannerLoadMs<25000L)return;
+        lastBannerLoadMs=now;
+        bannerHandler.removeCallbacks(bannerRetry);
+        if(bannerIsDebug&&bannerStatus!=null){
+            bannerStatus.setText("Loading Google test banner...");
+            bannerStatus.setVisibility(View.VISIBLE);
+        }
+        if(bannerBox!=null)bannerBox.setVisibility(View.VISIBLE);
+        try{
+            adView.loadAd(new AdRequest.Builder().build());
+        }catch(Exception e){
+            bannerLoaded=false;
+            Log.e("DarkChatAds","Banner request error",e);
+            if(bannerIsDebug&&bannerStatus!=null){
+                bannerStatus.setText("Ad request error: "+e.getClass().getSimpleName()+" · Tap to retry");
+                bannerStatus.setVisibility(View.VISIBLE);
+            }
+            bannerHandler.postDelayed(bannerRetry,45000L);
+        }
+    }
 
     private void captureSellerIntent(Intent intent) {
         if (intent == null || intent.getData() == null) return;
@@ -297,6 +366,7 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if (adView != null) adView.resume();
+        if(bannerReady&&!bannerLoaded)requestBanner(false);
         active = this;
         if (pageLoaded) { sendSavedToken(); checkFirebaseToken(); }
     }
@@ -314,6 +384,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         if (active == this) active = null;
+        bannerHandler.removeCallbacks(bannerRetry);
         if (adView != null) { adView.destroy(); adView = null; }
         if (webView != null) webView.destroy();
         super.onDestroy();
