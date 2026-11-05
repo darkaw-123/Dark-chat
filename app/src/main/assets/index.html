@@ -977,7 +977,7 @@ const A={
  copySellerChat:()=>dcShareMySellerChat(false),
  shareSellerChat:()=>dcShareMySellerChat(true),
  sell:()=>{tab='store';render();window.DCStore?.showSell?.();},
- tab:a=>{tab=a.dataset.t;if(tab==='store'){window.DCStore?.openShop?.();render();window.DCStore?.render?.();}else{render();if(tab==='me')dcRefreshSellerChatLink().then(()=>{if(tab==='me')render()});}},
+ tab:a=>{tab=a.dataset.t;if(tab==='store'){window.DCStore?.openShop?.();render();}else{render();if(tab==='me')dcRefreshSellerChatLink().then(()=>{if(tab==='me')render()});}},
  color:()=>{const c=$('#mycolor')?.value;if(!c)return;localStorage.setItem(userThemeKey(),c);setUserTheme(c);toast('Your color is saved on this device.')},
  clearcalls:async()=>{if(!confirm('Delete all your call history?'))return;const {error}=await sb.from('call_logs').delete().eq('user_id',me.id);if(error)return toast('Could not delete call history: '+error.message,1);logs=[];render();toast('Call history deleted.')},
  reply:a=>{const el=a.closest('[data-mid]');if(el)replyMsg(el)},
@@ -1116,8 +1116,25 @@ const money=n=>'Rs. '+Number(n||0).toLocaleString('en-PK',{maximumFractionDigits
 const photo=p=>p?sb.storage.from('darkchat-store-images').getPublicUrl(p).data.publicUrl:'';
 const isHttps=u=>/^https:\/\//i.test(String(u||''));
 let settings=null,stores=[],myStore=null,cats=[],products=[],rules=[],orders=[],buyerOrders=[],requests=[],view='browse',lastRenderedStoreView=null,picked=null,cart=[],loading=false,orderChannel=null,requestChannel=null,buyerOrderChannel=null,detailId=null,checkoutMode='cart',singleProductId=null,keywordSearch='',pendingReceiptMap=new Map();
+// Avoid 5-8 Supabase requests on every Store/Cart tab change.
+const STORE_CACHE_TTL_MS=25000;
+let storeCacheReady=false,storeCacheTime=0,storeCacheUser=null,storeCacheGeneration=0,storeCacheLoadedGeneration=-1,storeFetchInFlight=null;
+function invalidateStoreCache(){storeCacheGeneration++;}
+async function fetchData(){
+ const userId=me?.id;
+ if(!userId)return;
+ if(storeCacheUser!==userId){storeCacheUser=userId;storeCacheReady=false;storeCacheTime=0;storeCacheGeneration++;}
+ if(storeCacheReady&&storeCacheLoadedGeneration===storeCacheGeneration&&(Date.now()-storeCacheTime)<STORE_CACHE_TTL_MS)return;
+ if(storeFetchInFlight)return storeFetchInFlight;
+ const generation=storeCacheGeneration;
+ storeFetchInFlight=(async()=>{
+  await fetchFreshStoreData();
+  storeCacheReady=true;storeCacheTime=Date.now();storeCacheLoadedGeneration=generation;
+ })();
+ try{await storeFetchInFlight;}finally{storeFetchInFlight=null;}
+}
 const inlineKeywordCache=new Map();
-function root(){return document.getElementById('dc-store-root')}
+function root(){const inline=document.querySelector('#dc-inline-checkout #dc-store-root');return inline||document.getElementById('dc-store-root')}
 function btn(action,text,extra){return '<button type="button" class="btn '+(extra||'g')+'" data-s="'+action+'">'+text+'</button>'}
 function card(body){return '<section class="dcsc">'+body+'</section>'}
 function input(name,label,value,required,max){return '<label>'+h(label)+'</label><input name="'+h(name)+'" value="'+h(value||'')+'" maxlength="'+(max||160)+'" '+(required?'required':'')+'>'}
@@ -1150,19 +1167,20 @@ function sellerSharePanel(){
 function readCart(){try{cart=JSON.parse(localStorage.getItem('dcstore_cart_'+me.id)||'[]');if(!Array.isArray(cart))cart=[]}catch(_){cart=[]}}
 function saveCart(){try{localStorage.setItem('dcstore_cart_'+me.id,JSON.stringify(cart))}catch(_){}}
 function confirmErr(error){if(error)throw new Error(error.message)}
-async function fetchData(){
- const [ss,st,pr,req]=await Promise.all([
+async function fetchFreshStoreData(){
+ const [ss,st,pr,req,bought]=await Promise.all([
   sb.from('dc_store_settings').select('*').eq('id','global').maybeSingle(),
   sb.from('dc_stores').select('*').eq('active',true).order('created_at',{ascending:false}),
   sb.from('dc_store_products').select('*').eq('active',true).order('created_at',{ascending:false}).limit(500),
-  sb.from('dc_store_requests').select('*').eq('user_id',me.id).order('created_at',{ascending:false}).limit(4)
+  sb.from('dc_store_requests').select('*').eq('user_id',me.id).order('created_at',{ascending:false}).limit(4),
+  sb.from('dc_store_orders').select('*').eq('buyer_id',me.id).order('created_at',{ascending:false}).limit(100)
  ]);
- confirmErr(ss.error);confirmErr(st.error);confirmErr(pr.error);confirmErr(req.error);
+ confirmErr(ss.error);confirmErr(st.error);confirmErr(pr.error);confirmErr(req.error);confirmErr(bought.error);
  settings=ss.data||{store_price_pkr:1500,jazzcash_number:'03067008420',jazzcash_account_name:'Abdul Waheed'};
  stores=st.data||[];products=pr.data||[];requests=req.data||[];
  myStore=stores.find(x=>x.owner_id===me.id)||null;
  dcSellerHasShop=!!myStore?.active;dcSellerShareOrigin=dcSafeShareOrigin(settings?.share_site_url)||DC_DEFAULT_SHARE_SITE;
- const bought=await sb.from('dc_store_orders').select('*').eq('buyer_id',me.id).order('created_at',{ascending:false}).limit(100);confirmErr(bought.error);buyerOrders=bought.data||[];
+ buyerOrders=bought.data||[];
  cats=[];rules=[];orders=[];
  if(myStore){
   const [c,k,o]=await Promise.all([
@@ -1443,6 +1461,7 @@ async function submit(form){
    checkoutMode='cart';singleProductId=null;view='orders';
 
   }
+  invalidateStoreCache();
   await render();
  }catch(e){message(e.message||'Request failed',true);if(submitBtn)submitBtn.disabled=false}
 }
@@ -1487,6 +1506,7 @@ async function action(button){
    const {data,error}=await sb.from('dc_store_orders').update(changes).eq('id',id).eq('store_owner_id',me.id).eq('status','new').select('id');
    confirmErr(error);
    if(!data?.length)throw new Error('Order is no longer waiting for review');
+   invalidateStoreCache();
    message(accepted?'Order confirmed. Buyer notified in chat.':'Order rejected. Buyer notified in chat.');
    pushConfirmationMessage(id).catch(()=>{});
    await render();
@@ -1519,7 +1539,7 @@ async function action(button){
   if(!confirm('Delete this item?'))return;
   const table={delcat:'dc_store_categories',delprod:'dc_store_products',delkey:'dc_store_keywords'}[op];
   const {error}=await sb.from(table).delete().eq('id',id).eq('owner_id',me.id);
-  if(error)return message(error.message,true);message('Deleted');return render();
+  if(error)return message(error.message,true);invalidateStoreCache();message('Deleted');return render();
  }
 }
 async function change(select){
@@ -1529,6 +1549,7 @@ async function change(select){
   const {error}=await sb.from('dc_store_orders').update({[column]:select.value})
    .eq('id',select.dataset.id).eq('store_owner_id',me.id);
   if(error){message(error.message,true);return}
+  invalidateStoreCache();
   if(column==='status'&&select.value==='accepted'){
    message('✅ Order confirmed. The buyer will receive a message in your chat.');
    // Asynchronously also try the user's existing Android push notification route.
@@ -1540,6 +1561,7 @@ function attachRequestRealtime(){
  if(requestChannel||!me)return;
  requestChannel=sb.channel('dc-store-activation-'+me.id)
  .on('postgres_changes',{event:'UPDATE',schema:'public',table:'dc_store_requests',filter:'user_id=eq.'+me.id},payload=>{
+   invalidateStoreCache();
    if(payload.new?.status==='approved')message('✅ Store approved! Your seller dashboard is now unlocked.');
    else if(payload.new?.status==='rejected')message('Your store payment request was rejected.',true);
    if(root())render();
@@ -1552,6 +1574,7 @@ function attachRequestRealtime(){
   buyerOrderChannel=sb.channel('dc-order-confirmation-'+accountId)
    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'dc_store_orders',filter:'buyer_id=eq.'+accountId},({new:o,old:previous})=>{
     if(!o||me?.id!==accountId)return;
+    invalidateStoreCache();
     const status=String(o.status||'');
     if(status==='accepted')message('✅ Seller confirmed your order! Open Store → My Orders.');
     else if(status==='shipped')message('📦 Your order has been shipped.');
@@ -1574,7 +1597,7 @@ function attachRequestRealtime(){
 function attachRealtime(){
  if(!myStore||orderChannel)return;
  orderChannel=sb.channel('dc-seller-orders-'+me.id)
- .on('postgres_changes',{event:'INSERT',schema:'public',table:'dc_store_orders',filter:'store_owner_id=eq.'+me.id},()=>{message('🛍️ New store order received!');if(view==='my'&&root())render()})
+ .on('postgres_changes',{event:'INSERT',schema:'public',table:'dc_store_orders',filter:'store_owner_id=eq.'+me.id},()=>{invalidateStoreCache();message('🛍️ New store order received!');if(view==='my'&&root())render()})
  .subscribe();
 }
  async function enrichMessage(m,element,c){
@@ -1692,7 +1715,7 @@ document.addEventListener('change',e=>{
  }
 });
 sb.auth.onAuthStateChange((event,session)=>{
- if(event==='SIGNED_OUT'){settings=null;stores=[];myStore=null;cart=[];view='browse';buyerOrders=[];singleProductId=null;detailId=null;if(orderChannel){sb.removeChannel(orderChannel);orderChannel=null}if(requestChannel){sb.removeChannel(requestChannel);requestChannel=null}}
+ if(event==='SIGNED_OUT'){storeCacheReady=false;storeCacheUser=null;storeCacheTime=0;invalidateStoreCache();settings=null;stores=[];myStore=null;cart=[];view='browse';buyerOrders=[];singleProductId=null;detailId=null;if(orderChannel){sb.removeChannel(orderChannel);orderChannel=null}if(requestChannel){sb.removeChannel(requestChannel);requestChannel=null}}
 });
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&typeof tab!=='undefined'&&tab==='store'&&me&&root())render()});
 })();
