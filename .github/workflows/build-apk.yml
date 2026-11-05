@@ -1,4 +1,4 @@
-name: Build DARK CHAT V9.1 APK with FCM and AdMob
+name: Build DARK CHAT V9.2 APK with FCM and AdMob
 on:
   workflow_dispatch:
   push:
@@ -45,11 +45,11 @@ jobs:
       - name: Export HTML source
         run: |
           mkdir -p dist
-          cp app/src/main/assets/index.html dist/Dark_Chat_V9_1.html
+          cp app/src/main/assets/index.html dist/Dark_Chat_V9_2.html
       - name: Upload V9 HTML source
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_1_HTML_Source
+          name: DARK_CHAT_V9_2_HTML_Source
           path: dist/
       - name: Install Dark Chat custom purple D launcher icon
         shell: bash
@@ -67,7 +67,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_1_AD_FIX_APK
+          name: DARK_CHAT_V9_2_FAST_STORE_AD_DIAGNOSTICS_APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Publish V9 APK to GitHub Release
@@ -75,13 +75,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Dark-Chat-v9.1.apk
-          if gh release view v9.1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload v9.1 Dark-Chat-v9.1.apk --clobber --repo "$GITHUB_REPOSITORY"
+          cp app/build/outputs/apk/debug/app-debug.apk Dark-Chat-v9.2.apk
+          if gh release view v9.2 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v9.2 Dark-Chat-v9.2.apk --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create v9.1 Dark-Chat-v9.1.apk \
+            gh release create v9.2 Dark-Chat-v9.2.apk \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "DARK CHAT V9.1 — AdMob and Chats Navigation Fix" \
-              --notes "Dark Chat V9.1: fixed bottom tab layout and corrected AdMob banner testing, seller direct deep links, chat keyword product cards, checkout, payment receipt, seller order notifications, Firebase FCM for calls/messages, and Google Mobile Ads SDK with debug test banner. Android 8.0+."
+              --title "DARK CHAT V9.2 — Faster Store and AdMob Diagnostics" \
+              --notes "Dark Chat V9.2: cached store loading, parallel Supabase requests, banner retry and visible debug failure reason, seller direct deep links, chat keyword product cards, checkout, payment receipt, seller order notifications, Firebase FCM for calls/messages, and Google Mobile Ads SDK with debug test banner. Android 8.0+."
           fi
