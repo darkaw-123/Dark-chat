@@ -65,11 +65,11 @@ jobs:
       - name: Export HTML source
         run: |
           mkdir -p dist
-          cp app/src/main/assets/index.html dist/Dark_Chat_V9_2.html
+          cp app/src/main/assets/index.html dist/Dark_Chat_V9_3.html
       - name: Upload V9 HTML source
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_2_HTML_Source
+          name: DARK_CHAT_V9_3_HTML_Source
           path: dist/
       - name: Install Dark Chat custom purple D launcher icon
         shell: bash
@@ -87,19 +87,19 @@ jobs:
       - name: Upload debug AAB (testing only)
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_2_DEBUG_AAB
+          name: DARK_CHAT_V9_3_DEBUG_AAB
           path: app/build/outputs/bundle/debug/app-debug.aab
           if-no-files-found: error
       - name: Upload unsigned release AAB (requires release signing before Play upload)
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_2_UNSIGNED_RELEASE_AAB
+          name: DARK_CHAT_V9_3_UNSIGNED_RELEASE_AAB
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_2_STORE_FOR_ALL_GUEST_CHECKOUT_APK
+          name: DARK_CHAT_V9_3_STORE_FOR_ALL_GUEST_CHECKOUT_APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Publish V9 APK to GitHub Release
