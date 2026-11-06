@@ -62,8 +62,20 @@ jobs:
           test "$(wc -c < app/src/main/res/drawable-nodpi/dark_chat_logo.webp)" -gt 2500
       - name: Validate Android app label
         run: grep -F 'android:label="Dark Chat"' app/src/main/AndroidManifest.xml
-      - name: Build installable debug APK
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Build V9.2 APK and Android App Bundles
+        run: gradle :app:assembleDebug :app:bundleDebug :app:bundleRelease --no-daemon --stacktrace
+      - name: Upload debug AAB (testing only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: DARK_CHAT_V9_2_DEBUG_AAB
+          path: app/build/outputs/bundle/debug/app-debug.aab
+          if-no-files-found: error
+      - name: Upload unsigned release AAB (requires release signing before Play upload)
+        uses: actions/upload-artifact@v4
+        with:
+          name: DARK_CHAT_V9_2_UNSIGNED_RELEASE_AAB
+          path: app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -85,3 +97,12 @@ jobs:
               --title "DARK CHAT V9.2 — Faster Store and AdMob Diagnostics" \
               --notes "Dark Chat V9.2: cached store loading, parallel Supabase requests, banner retry and visible debug failure reason, seller direct deep links, chat keyword product cards, checkout, payment receipt, seller order notifications, Firebase FCM for calls/messages, and Google Mobile Ads SDK with debug test banner. Android 8.0+."
           fi
+
+      - name: Publish V9.2 unsigned AAB as a release download
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test -s app/build/outputs/bundle/release/app-release.aab
+          cp app/build/outputs/bundle/release/app-release.aab Dark-Chat-v9.2-unsigned.aab
+          gh release upload v9.2 Dark-Chat-v9.2-unsigned.aab --clobber --repo "$GITHUB_REPOSITORY"
