@@ -1246,7 +1246,7 @@ function renderDetail(){
 function requestPanel(){
  const last=requests[0],pending=last?.status==='pending',rejected=last?.status==='rejected';
  const gpay=isHttps(settings.google_pay_checkout_url),price=money(settings.store_price_pkr);
- const how='<div class="dcssteps"><div><span>01</span><b>Make Payment</b><small>Transfer the exact amount to JazzCash.</small></div><div><span>02</span><b>Send Request</b><small>Submit your real transaction ID.</small></div><div><span>03</span><b>Admin Approval</b><small>Store tools unlock after verification.</small></div></div>';
+ const how='<div class="dcssteps"><div><span>01</span><b>Make Payment</b><small>Transfer the exact amount to JazzCash.</small></div><div><span>02</span><b>Send Proof</b><small>Enter TID and attach your payment screenshot.</small></div><div><span>03</span><b>Admin Approval</b><small>Store tools unlock after verification.</small></div></div>';
  const footer=card('<div class="dcsafter"><h4>Looking to shop?</h4><p>Anyone can order products without paying for store activation. This fee is only for sellers.</p>'+btn('browse','Browse available stores')+'</div>');
  const heading='<div class="dcspayhero"><div class="dcspill">✦ DARK CHAT MARKETPLACE</div><div class="dcspayemblem">STORE ACTIVATION</div><h2>Start Your Own Store</h2><p>Sell products directly through your Dark Chat profile. Your store dashboard is protected until payment is verified by an administrator.</p><div class="dcstotal"><small>One-time store activation</small><strong>'+price+'</strong><span>PKR · Manually approved</span></div></div>';
  if(pending)return '<div class="dcsflow">'+heading+
@@ -1261,8 +1261,11 @@ function requestPanel(){
   '<p class="dcsdim">Open JazzCash on your phone, send '+price+' to this number, and enter the transaction reference shown on your receipt. Submitting a reference does not verify a payment.</p>'+
   '<form data-f="request"><label>Payment Method</label><select name="payment_method"><option value="jazzcash">JazzCash — manual verification</option>'+
   (gpay?'<option value="google_pay">Google Pay — pending admin verification</option>':'')+'</select>'+
-  input('transfer_reference','Transaction / Payment Reference','',true,90)+
-  '<button class="btn" type="submit" style="width:100%;margin-top:16px">Submit Payment for Approval</button></form>'+
+  input('transfer_reference','Transaction / Payment Reference (TID)','',true,90)+
+  '<label>Payment screenshot *</label><input name="store_payment_receipt" type="file" accept="image/png,image/jpeg,image/webp" required>'+
+  '<p class="dcsdim">Upload a clear PNG, JPG or WEBP screenshot (max 5 MB) showing your transaction. It stays private for administrator review.</p>'+
+  '<div class="dcs-upload-preview" id="dcs-store-receipt-preview">📷 Screenshot preview will appear here</div>'+
+  '<button class="btn" type="submit" style="width:100%;margin-top:16px">Send TID & Screenshot for Approval</button></form>'+
   (gpay?'<p class="dcsdim">Google Pay gateway: <a href="'+h(settings.google_pay_checkout_url)+'" target="_blank" rel="noopener">Open merchant checkout</a>. Confirmation remains manual.</p>':
     '<p class="dcsdim">Google Pay is not available until the administrator configures an authorised payment gateway.</p>')+
   '<div class="dcsnotice">🔒 Your store name, products, categories, automated replies and order dashboard appear <b>only after the administrator approves your request.</b></div>')+
@@ -1430,8 +1433,16 @@ async function submit(form){
    if(!reference)throw new Error('Enter a transaction reference');
    const method=val('payment_method');
    if(method==='google_pay'&&!isHttps(settings.google_pay_checkout_url))throw new Error('Google Pay is not configured');
-   const {error}=await sb.from('dc_store_requests').insert({user_id:owner,payment_method:method,transfer_reference:reference});
-   confirmErr(error);message('Store request submitted. Admin must verify your payment.');
+   const file=d.get('store_payment_receipt');
+   if(!file||!file.size||file.size>5*1048576||!['image/png','image/jpeg','image/webp'].includes(file.type))
+     throw new Error('Attach a clear JPG, PNG or WEBP payment screenshot under 5 MB.');
+   const ext={'image/png':'png','image/jpeg':'jpg','image/webp':'webp'}[file.type];
+   const receiptPath=owner+'/activation/'+crypto.randomUUID()+'.'+ext;
+   const {error:uploadError}=await sb.storage.from('dc-store-receipts').upload(receiptPath,file,{contentType:file.type,cacheControl:'0',upsert:false});
+   confirmErr(uploadError);
+   const {error}=await sb.from('dc_store_requests').insert({user_id:owner,payment_method:method,transfer_reference:reference,receipt_path:receiptPath});
+   if(error){try{await sb.storage.from('dc-store-receipts').remove([receiptPath])}catch(_){}confirmErr(error)}
+   message('TID and payment screenshot sent privately. Admin must verify your payment.');
   }else if(type==='profile'){
    const {error}=await sb.from('dc_stores').update({
     store_name:val('store_name'),description:val('description'),
@@ -1718,6 +1729,21 @@ document.addEventListener('click',e=>{
 document.addEventListener('click',e=>{const b=e.target.closest('[data-s]');if(!b||!b.closest('#dc-store-root'))return;e.preventDefault();action(b).catch(x=>message(x.message,true))});
 document.addEventListener('submit',e=>{const f=e.target.closest('#dc-store-root form[data-f]');if(!f)return;e.preventDefault();submit(f)});
 document.addEventListener('change',e=>{
+ const storeInput=e.target.closest('#dc-store-root input[name=store_payment_receipt]');
+ if(storeInput){
+  const target=document.getElementById('dcs-store-receipt-preview');
+  if(!target)return;
+  const file=storeInput.files?.[0];
+  if(target.dataset.objectUrl){URL.revokeObjectURL(target.dataset.objectUrl);delete target.dataset.objectUrl}
+  if(!file){target.textContent='📷 Screenshot preview will appear here';return}
+  if(file.size>5*1048576||!['image/png','image/jpeg','image/webp'].includes(file.type)){
+   storeInput.value='';target.textContent='Choose PNG, JPG or WEBP under 5 MB';message('Invalid store payment screenshot',true);return
+  }
+  const url=URL.createObjectURL(file);target.dataset.objectUrl=url;
+  const image=document.createElement('img');image.src=url;image.alt='Store payment receipt preview';
+  target.replaceChildren(image,document.createTextNode(' '+file.name+' · '+Math.round(file.size/1024)+' KB'));
+  return;
+ }
  const receiptInput=e.target.closest('#dc-store-root input[name=payment_receipt]');
  if(receiptInput){
   const target=document.getElementById('dcs-upload-preview');if(!target)return;
