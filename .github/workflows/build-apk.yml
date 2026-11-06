@@ -1,4 +1,4 @@
-name: Build DARK CHAT V9.2 APK with FCM and AdMob
+name: Build DARK CHAT V9.3 APK with FCM and AdMob
 on:
   workflow_dispatch:
   push:
@@ -42,6 +42,26 @@ jobs:
               assert v in s, f'Missing V9 feature {v}'
           print('Validated V9 HTML',len(s),'characters')
           PY
+      - name: Validate inline JavaScript parsing and guest purchase links
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          page=Path('app/src/main/assets/index.html').read_text()
+          for text in ['id="dc-guest-shop"','id="dc-guest-shop-start"','Open Store · Rs. 1,500','darkchat-guest-shop']:
+              assert text in page, f'Missing guest store integration: {text}'
+          blocks=re.findall(r'<script(?:\s[^>]*)?>([\s\S]*?)</script>',page,flags=re.I)
+          assert len(blocks)>=3, f'Expected all app inline scripts, found {len(blocks)}'
+          for i,block in enumerate(blocks):
+              if block.strip():Path(f'/tmp/darkchat-js-{i}.js').write_text(block)
+          print('Validated guest store hooks and extracted',len(blocks),'scripts')
+          PY
+          for f in /tmp/darkchat-js-*.js; do node --check "$f"; done
+      - name: Validate public guest catalog API
+        shell: bash
+        run: |
+          curl --fail-with-body --silent --show-error --retry 2 --max-time 30             -H "Content-Type: application/json" -d '{"action":"catalog"}'             https://owdrctmlktonguztakau.supabase.co/functions/v1/darkchat-guest-shop             | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d.get("ok")==True,d.get("error");assert isinstance(d.get("stores"),list) and isinstance(d.get("products"),list);print("Guest catalog reachable:",len(d["stores"]),"stores,",len(d["products"]),"products")'
       - name: Export HTML source
         run: |
           mkdir -p dist
@@ -62,7 +82,7 @@ jobs:
           test "$(wc -c < app/src/main/res/drawable-nodpi/dark_chat_logo.webp)" -gt 2500
       - name: Validate Android app label
         run: grep -F 'android:label="Dark Chat"' app/src/main/AndroidManifest.xml
-      - name: Build V9.2 APK and Android App Bundles
+      - name: Build V9.3 APK and Android App Bundles
         run: gradle :app:assembleDebug :app:bundleDebug :app:bundleRelease --no-daemon --stacktrace
       - name: Upload debug AAB (testing only)
         uses: actions/upload-artifact@v4
@@ -79,7 +99,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_2_FAST_STORE_AD_DIAGNOSTICS_APK
+          name: DARK_CHAT_V9_2_STORE_FOR_ALL_GUEST_CHECKOUT_APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Publish V9 APK to GitHub Release
@@ -87,22 +107,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Dark-Chat-v9.2.apk
-          if gh release view v9.2 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload v9.2 Dark-Chat-v9.2.apk --clobber --repo "$GITHUB_REPOSITORY"
+          cp app/build/outputs/apk/debug/app-debug.apk Dark-Chat-v9.3.apk
+          if gh release view v9.3 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v9.3 Dark-Chat-v9.3.apk --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create v9.2 Dark-Chat-v9.2.apk \
+            gh release create v9.3 Dark-Chat-v9.3.apk \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "DARK CHAT V9.2 — Faster Store and AdMob Diagnostics" \
-              --notes "Dark Chat V9.2: cached store loading, parallel Supabase requests, banner retry and visible debug failure reason, seller direct deep links, chat keyword product cards, checkout, payment receipt, seller order notifications, Firebase FCM for calls/messages, and Google Mobile Ads SDK with debug test banner. Android 8.0+."
+              --title "DARK CHAT V9.3 — Rs. 1,500 Store Activation and Guest Checkout" \
+              --notes "Dark Chat V9.3: Every signed-in user can request a Rs. 1,500 seller store, shoppers can place orders as guests without creating accounts, private receipt uploads, store owner verification, faster store, FCM, AdMob test banner. Android 8.0+."
           fi
 
-      - name: Publish V9.2 unsigned AAB as a release download
+      - name: Publish V9.3 unsigned AAB as a release download
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test -s app/build/outputs/bundle/release/app-release.aab
-          cp app/build/outputs/bundle/release/app-release.aab Dark-Chat-v9.2-unsigned.aab
-          gh release upload v9.2 Dark-Chat-v9.2-unsigned.aab --clobber --repo "$GITHUB_REPOSITORY"
+          cp app/build/outputs/bundle/release/app-release.aab Dark-Chat-v9.3-unsigned.aab
+          gh release upload v9.3 Dark-Chat-v9.3-unsigned.aab --clobber --repo "$GITHUB_REPOSITORY"
