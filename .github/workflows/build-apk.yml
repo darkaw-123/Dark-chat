@@ -1,4 +1,4 @@
-name: Build DARK CHAT V9.3 APK with FCM and AdMob
+name: Build DARK CHAT V9.4 APK with FCM and AdMob
 on:
   workflow_dispatch:
   push:
@@ -49,7 +49,7 @@ jobs:
           import re
           from pathlib import Path
           page=Path('app/src/main/assets/index.html').read_text()
-          for text in ['id="dc-guest-shop"','id="dc-guest-shop-start"','Open Store · Rs. 1,500','darkchat-guest-shop']:
+          for text in ['id="dc-guest-shop"','id="dc-guest-shop-start"','Open Store · Rs. 1,500','darkchat-guest-shop','store_payment_receipt','receipt_path:receiptPath']:
               assert text in page, f'Missing guest store integration: {text}'
           blocks=re.findall(r'<script(?:\s[^>]*)?>([\s\S]*?)</script>',page,flags=re.I)
           assert len(blocks)>=3, f'Expected all app inline scripts, found {len(blocks)}'
@@ -65,11 +65,11 @@ jobs:
       - name: Export HTML source
         run: |
           mkdir -p dist
-          cp app/src/main/assets/index.html dist/Dark_Chat_V9_3.html
+          cp app/src/main/assets/index.html dist/Dark_Chat_V9_4.html
       - name: Upload V9 HTML source
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_3_HTML_Source
+          name: DARK_CHAT_V9_4_HTML_Source
           path: dist/
       - name: Install Dark Chat custom purple D launcher icon
         shell: bash
@@ -82,24 +82,24 @@ jobs:
           test "$(wc -c < app/src/main/res/drawable-nodpi/dark_chat_logo.webp)" -gt 2500
       - name: Validate Android app label
         run: grep -F 'android:label="Dark Chat"' app/src/main/AndroidManifest.xml
-      - name: Build V9.3 APK and Android App Bundles
+      - name: Build V9.4 APK and Android App Bundles
         run: gradle :app:assembleDebug :app:bundleDebug :app:bundleRelease --no-daemon --stacktrace
       - name: Upload debug AAB (testing only)
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_3_DEBUG_AAB
+          name: DARK_CHAT_V9_4_DEBUG_AAB
           path: app/build/outputs/bundle/debug/app-debug.aab
           if-no-files-found: error
       - name: Upload unsigned release AAB (requires release signing before Play upload)
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_3_UNSIGNED_RELEASE_AAB
+          name: DARK_CHAT_V9_4_UNSIGNED_RELEASE_AAB
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_3_STORE_FOR_ALL_GUEST_CHECKOUT_APK
+          name: DARK_CHAT_V9_4_STORE_FOR_ALL_GUEST_CHECKOUT_APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Publish V9 APK to GitHub Release
@@ -107,22 +107,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Dark-Chat-v9.3.apk
-          if gh release view v9.3 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload v9.3 Dark-Chat-v9.3.apk --clobber --repo "$GITHUB_REPOSITORY"
+          cp app/build/outputs/apk/debug/app-debug.apk Dark-Chat-v9.4.apk
+          if gh release view v9.4 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v9.4 Dark-Chat-v9.4.apk --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create v9.3 Dark-Chat-v9.3.apk \
+            gh release create v9.4 Dark-Chat-v9.4.apk \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "DARK CHAT V9.3 — Rs. 1,500 Store Activation and Guest Checkout" \
-              --notes "Dark Chat V9.3: Every signed-in user can request a Rs. 1,500 seller store, shoppers can place orders as guests without creating accounts, private receipt uploads, store owner verification, faster store, FCM, AdMob test banner. Android 8.0+."
+              --title "DARK CHAT V9.4 — Rs. 1,500 Store Activation and Guest Checkout" \
+              --notes "Dark Chat V9.4: Every signed-in user can request a Rs. 1,500 seller store with TID and private screenshot proof, admin must review seller request; account-free guest checkout, FCM, AdMob test banner. Android 8.0+."
           fi
 
-      - name: Publish V9.3 unsigned AAB as a release download
+      - name: Publish V9.4 unsigned AAB as a release download
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test -s app/build/outputs/bundle/release/app-release.aab
-          cp app/build/outputs/bundle/release/app-release.aab Dark-Chat-v9.3-unsigned.aab
-          gh release upload v9.3 Dark-Chat-v9.3-unsigned.aab --clobber --repo "$GITHUB_REPOSITORY"
+          cp app/build/outputs/bundle/release/app-release.aab Dark-Chat-v9.4-unsigned.aab
+          gh release upload v9.4 Dark-Chat-v9.4-unsigned.aab --clobber --repo "$GITHUB_REPOSITORY"
