@@ -50,7 +50,7 @@ jobs:
           from pathlib import Path
           page=Path('app/src/main/assets/index.html').read_text()
           for text in ['id="dc-guest-shop"','Open Store · Rs. 1,500','darkchat-guest-shop','store_payment_receipt','receipt_path:receiptPath',
-                       "contactAliases[other(c).user_id]","saveContactAlias(","dc-chat-search-results","renamefriend:","searchchats:","id=\\\"fn\\\""]:
+                       "contactAliases[other(c).user_id]","saveContactAlias(","dc-chat-search-results","renamefriend:","searchchats:",'id="fn"']:
               assert text in page, f'Missing guest store integration: {text}'
           blocks=re.findall(r'<script(?:\s[^>]*)?>([\s\S]*?)</script>',page,flags=re.I)
           assert 'id="dc-guest-shop-start"' not in page, 'Shopping button must not appear on login page'
