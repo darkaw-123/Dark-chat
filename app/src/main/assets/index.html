@@ -834,7 +834,8 @@ async function openConv(id){
   '<button class="ib" data-a="addm" aria-label="Add members">'+ic('plus')+'</button>';
  const notice=!direct?'':blocked?
   '<div class="dc-contact-notice"><span>⛔ You blocked this contact. Private messages and calls are disabled.</span><button class="btn g s" data-a="unblockfriend">Unblock</button></div>':
-  !saved?'<div class="dc-contact-notice"><span>New message from an unsaved contact</span><div><button class="btn s" data-a="renamefriend">＋ Add Contact</button><button class="btn r s" data-a="blockfriend">⛔ Block</button></div></div>':'';
+  !saved?'<div class="dc-contact-notice"><span>New message from an unsaved contact</span><div><button class="btn s" data-a="renamefriend">＋ Add Contact</button><button class="btn r s" data-a="blockfriend">⛔ Block</button></div></div>':
+  '<div class="dc-contact-notice dc-saved-contact-actions"><span>✓ Saved contact · '+esc(cname(c))+'</span><div><button class="btn g s" data-a="renamefriend">✎ Edit name</button><button class="btn r s" data-a="blockfriend">⛔ Block Contact</button></div></div>';
  const composer=blocked?'<div class="dc-blocked-composer">⛔ Unblock this contact to send a message.</div>':
   '<div class="cmp"><button class="ib" data-a="attach" aria-label="Attach photo, video or file">'+ic('plus')+'</button><input type="file" id="atf" data-c="attach" multiple hidden><input id="inp" placeholder="Message" maxlength="4000" autocomplete="off" enterkeyhint="send"><button class="ib" id="mic" data-a="rec" aria-label="Voice message">'+ic('mic')+'</button><button class="ib grad" data-a="send" aria-label="Send">'+ic('send')+'</button></div>';
  ch.innerHTML='<div class="hd"><button class="ib back" data-a="back" aria-label="Back">'+ic('back')+'</button>'+avHtml(cav(c),cname(c),'s')+'<div class="rt"><b>'+esc(cname(c))+'</b><span>'+(direct?(saved?'Saved contact · Private chat':'Unknown contact · Private chat'):c.people.length+' members')+'</span></div>'+tools+'</div>'+notice+
