@@ -1090,7 +1090,11 @@ function subscribe(){
   if(!conv(m.conversation_id))return;
   last[m.conversation_id]=last[m.conversation_id]?.id===m.id?m:last[m.conversation_id];
   if(m.conversation_id===cur&&conv(cur)){
-   if(!m.deleted_at&&!m.edited_at&&updateTickInChat(m))return;
+   // A receipt changes timestamps only. Avoid reloading message history on each delivery.
+   if(!m.deleted_at&&!m.edited_at&&conv(cur).kind==='direct'){
+    if(m.sender_id===me.id)updateTickInChat(m);
+    return;
+   }
    openConv(cur);
   }else render();
  })
