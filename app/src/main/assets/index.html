@@ -481,7 +481,7 @@ $('#bootmsg').innerHTML=LOGO+'<span>Loading DARK CHAT…</span>';
 if(!window.supabase){$('#bootmsg').innerHTML='Could not load the app library. Check your connection and reload.'}
 const sb=window.supabase&&supabase.createClient(U,K,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
 let me=null,prof=null,convs=[],names={},last={},unread={},cur=null,tab='chats',stat=[],anns=[],logs=[],call=null,chans={},db=null,booted=false,rec=null,sending=false;
-let contactAliases={},chatSearchTerm='',chatSearchOpen=false,blockedUsers=new Set();
+let contactAliases={},chatSearchTerm='',chatSearchOpen=false,blockedUsers=new Set(),groupInvites=[],groupFriends=[],groupSelected=new Set(),groupEditorMode='create',groupSelectOpen=false;
 /* A share link selects a seller conversation; never treats the username as trusted HTML. */
 const DC_LINK_KEY='darkchat_pending_seller';
 // Auto-generated seller chat links use the published DARK CHAT download-site domain.
@@ -637,7 +637,7 @@ function contactOptions(){
   '<button class="btn g" type="button" data-a="'+(blocked?'unblockfriend':'blockfriend')+'" style="width:100%;margin-top:10px">'+(blocked?'Unblock contact':'⛔ Block contact')+'</button>'+
   '<button class="btn g" type="button" data-a="close" style="width:100%;margin-top:10px">Close</button>');
 }
-const cav=c=>c.kind==='group'?null:other(c).avatar_path;
+const cav=c=>c.kind==='group'?(c.avatar_path||null):other(c).avatar_path;
 const prev=m=>!m?'':m.deleted_at?'This message was deleted.':m.message_type==='audio'?'Voice message':m.message_type==='image'?'Photo':m.attachment_path?'File: '+(m.body||''):(m.body||'');
 function modal(h){const m=$('#modal');m.innerHTML='<div class="ov"><div class="card">'+h+'</div></div>';m.hidden=false}
 function closeM(){const m=$('#modal');m.hidden=true;m.innerHTML=''}
@@ -715,7 +715,7 @@ async function boot(){
   const [{data:pr,error:pe},th]=await Promise.all([sb.from('profiles').select('*').eq('id',me.id).single(),sb.from('app_theme_settings').select('theme').eq('id','global').maybeSingle()]);
   if(pe)throw pe;prof=pr;names[me.id]={user_id:me.id,display_name:pr.display_name||pr.username,avatar_path:pr.avatar_path};
   applyTheme(th.data&&th.data.theme);restoreUserTheme();
-  await Promise.all([loadContactAliases(),loadBlockedUsers(),loadConvs(),loadStatus(),loadAnns(),loadLogs()]);
+  await Promise.all([loadContactAliases(),loadBlockedUsers(),loadConvs(),loadStatus(),loadAnns(),loadLogs(),loadGroupInvites()]);
   await dcRefreshSellerChatLink();
   $('#boot').hidden=true;$('#app').hidden=false;
    buildNav();render();subscribe();listenCalls();
@@ -740,7 +740,7 @@ async function boot(){
  if(call){try{clearTimeout(call.timer);call.pc?.close();call.stream?.getTracks().forEach(t=>t.stop())}catch(_){}call=null}
  const cu=$('#callUI');if(cu){cu.hidden=true;cu.innerHTML=''}
  if(rec){try{rec.mr?.stop()}catch(_){}rec=null}
- me=null;prof=null;convs=[];names={};last={};unread={};cur=null;tab='chats';contactAliases={};chatSearchTerm='';chatSearchOpen=false;blockedUsers=new Set();dcSellerHasShop=false;dcSellerShareOrigin=DC_DEFAULT_SHARE_SITE;
+ me=null;prof=null;convs=[];names={};last={};unread={};cur=null;tab='chats';contactAliases={};chatSearchTerm='';chatSearchOpen=false;blockedUsers=new Set();groupInvites=[];groupFriends=[];groupSelected=new Set();dcSellerHasShop=false;dcSellerShareOrigin=DC_DEFAULT_SHARE_SITE;
  stat=[];anns=[];logs=[];rtRetry=0;replyTo=null;document.documentElement.style.removeProperty('--p1');document.documentElement.style.removeProperty('--p2');document.documentElement.style.removeProperty('--out');
  const chat=$('#chat');if(chat){chat.classList.remove('open');chat.innerHTML='<div class="empty" style="margin:auto"><b>Select a chat</b>Your messages appear here.</div>'}
  const list=$('#list');if(list)list.replaceChildren();
@@ -787,7 +787,7 @@ function applyTheme(t){const r=document.documentElement.style;
 
 /* ---------- data ---------- */
 async function loadConvs(){
- const {data:cs,error}=await sb.from('conversations').select('id,kind,title,created_at').in('kind',['direct','group']);
+ const {data:cs,error}=await sb.from('conversations').select('id,kind,title,created_by,avatar_path,created_at').in('kind',['direct','group']);
  if(error)throw error;
  const all=cs||[];
  await Promise.all(all.map(async c=>{const {data}=await sb.rpc('get_conversation_people',{target_conversation:c.id});c.people=data||[];c.people.forEach(p=>names[p.user_id]=p)}));
