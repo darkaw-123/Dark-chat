@@ -655,9 +655,35 @@ async function dispatchMessagePush(messageId){
 }
 
 /* ---------- auth ---------- */
-let mode='login',busy=false;
-function setMode(m){mode=m;const s=m==='signup';$('#asub').textContent=s?'Choose a username and password.':'Log in to your account.';$('#ab').textContent=s?'Create account':'Log in';$('#at').textContent=s?'I already have an account':'Create a new account';$('#p').autocomplete=s?'new-password':'current-password';$('#ae').textContent=''}
+let mode='login',busy=false,signupPhoto=null,signupPhotoPreview=null;
+function setMode(m){mode=m;const s=m==='signup';$('#asub').textContent=s?'Choose a username and password.':'Log in to your account.';$('#ab').textContent=s?'Create account':'Log in';$('#at').textContent=s?'I already have an account':'Create a new account';$('#p').autocomplete=s?'new-password':'current-password';$('#dc-signup-photo-row').hidden=!s;$('#ae').textContent=''}
 $('#at').onclick=()=>setMode(mode==='login'?'signup':'login');
+
+$('#dc-signup-photo').addEventListener('change',e=>{
+ const f=e.target.files?.[0],preview=$('#dc-signup-avatar-preview');
+ if(signupPhotoPreview)URL.revokeObjectURL(signupPhotoPreview);
+ signupPhotoPreview=null;signupPhoto=null;preview.style.backgroundImage='';preview.textContent='📷';
+ if(!f)return;
+ if(f.size>5*1048576||!['image/jpeg','image/png','image/webp'].includes(f.type)){
+  e.target.value='';$('#ae').textContent='Choose a JPG, PNG or WEBP photo under 5 MB';return;
+ }
+ signupPhoto=f;signupPhotoPreview=URL.createObjectURL(f);
+ preview.style.backgroundImage='url("'+signupPhotoPreview+'")';preview.textContent='';
+});
+async function saveSignupPhoto(id){
+ const file=signupPhoto;if(!file)return;
+ const ext={'image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[file.type];
+ if(!id||!ext)throw Error('Invalid signup photo');
+ const path=id+'/avatars/'+crypto.randomUUID()+'.'+ext;
+ const up=await sb.storage.from(BUCKET).upload(path,file,{contentType:file.type});
+ if(up.error)throw up.error;
+ const res=await sb.from('profiles').update({avatar_path:path,updated_at:new Date().toISOString()}).eq('id',id);
+ if(res.error){await sb.storage.from(BUCKET).remove([path]);throw res.error}
+ if(me?.id===id&&prof){prof.avatar_path=path;names[id]={...names[id],avatar_path:path};render()}
+ signupPhoto=null;
+ if(signupPhotoPreview){URL.revokeObjectURL(signupPhotoPreview);signupPhotoPreview=null}
+}
+
 $('#af').onsubmit=async e=>{e.preventDefault();if(busy)return;
  const u=$('#u').value.trim().toLowerCase(),p=$('#p').value,er=$('#ae');er.textContent='';
  if(!/^[a-z0-9_.]{3,32}$/.test(u))return er.textContent='Username must be 3–32 characters: letters, numbers, dot or underscore.';
@@ -668,6 +694,9 @@ $('#af').onsubmit=async e=>{e.preventDefault();if(busy)return;
    const {data,error}=await sb.auth.signUp({email,password:p,options:{data:{username:u,display_name:u}}});
    if(error)throw new Error(/registered|already|database error|duplicate/i.test(error.message)?'That username is already taken.':error.message);
    if(!data.session){const r=await sb.auth.signInWithPassword({email,password:p});if(r.error)throw new Error('Account created, but Supabase email confirmation is on. Turn it off in Auth settings, then log in.')}
+   if(signupPhoto){try{await saveSignupPhoto(data.user?.id)}
+    catch(photoError){console.warn('Optional signup avatar failed',photoError);setTimeout(()=>toast('Account created; photo upload failed. You can add it from Profile.',1),1400)}
+   }
   }else{const {error}=await sb.auth.signInWithPassword({email,password:p});if(error)throw new Error(/invalid/i.test(error.message)?'Wrong username or password.':error.message)}
  }catch(x){er.textContent=x.message||'Something went wrong. Try again.'}
  busy=false;$('#ab').disabled=false;setMode(mode);
