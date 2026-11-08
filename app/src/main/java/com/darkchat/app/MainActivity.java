@@ -8,6 +8,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.widget.TextView;
 import android.view.Gravity;
+import android.view.WindowManager;
 import android.content.pm.ApplicationInfo;
 import android.view.View;
 import android.widget.LinearLayout;
@@ -59,6 +60,10 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Protect every Dark Chat screen, including account setup, profiles, groups,
+        // messages and payment details, from standard Android screenshot and capture APIs.
+        getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE,
+                             WindowManager.LayoutParams.FLAG_SECURE);
         active = this;
         captureIncomingCallIntent(getIntent());
         captureSellerIntent(getIntent());
