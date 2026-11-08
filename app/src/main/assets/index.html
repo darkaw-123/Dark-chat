@@ -785,6 +785,75 @@ function applyTheme(t){const r=document.documentElement.style;
  if(!t||typeof t!=='object'||(t.bg==='#ffffff'&&t.g3===LEG)){Object.values(TM).forEach(v=>r.removeProperty(v));return}
  for(const k in TM)if(/^#[0-9a-f]{3,8}$/i.test(t[k]||''))r.setProperty(TM[k],t[k])}
 
+
+/* ---------- group invitations & group profile pictures ---------- */
+async function loadGroupInvites(){
+ if(!me)return;
+ const {data,error}=await sb.rpc('dc_pending_group_invites');
+ if(error){console.warn('Group invitations unavailable:',error.message);groupInvites=[];return;}
+ groupInvites=data||[];
+}
+async function refreshGroupFriends(){
+ const {data,error}=await sb.rpc('dc_list_group_friends');
+ if(error)throw new Error('Could not fetch saved friends: '+error.message);
+ groupFriends=data||[];groupSelected=new Set();groupSelectOpen=false;
+}
+function groupFriendRows(){
+ if(!groupFriends.length)return '<p class="dc-group-empty">No saved contacts yet. Add a friend from Chats first.</p>';
+ return groupFriends.map(f=>'<label class="dc-group-friend">'+
+  '<input type="checkbox" data-c="dcgroupfriend" value="'+esc(f.user_id)+'" '+(groupSelected.has(f.user_id)?'checked':'')+'>'+
+  avHtml(f.avatar_path,f.saved_name||f.display_name,'s')+
+  '<span><b>'+esc(f.saved_name||f.display_name)+'</b><small>@'+esc(f.username)+' · Invite only</small></span></label>').join('');
+}
+function chosenGroupNames(){
+ return [...groupSelected];
+}
+function groupPhotoInput(){
+ return '<label for="dc-group-photo">Group photo (optional)</label>'+
+ '<div class="dc-group-photo-picker"><div class="dc-group-photo-preview" id="dc-group-photo-preview">📷</div>'+
+ '<input type="file" id="dc-group-photo" accept="image/jpeg,image/png,image/webp"><small>PNG/JPG/WEBP, max 5 MB</small></div>';
+}
+function groupInvitePicker(){
+ return '<div class="dc-group-picker">'+
+  '<button class="btn g" type="button" data-a="toggleGroupPicker" style="width:100%">＋ Choose saved friends <span id="dc-group-count">('+groupSelected.size+' selected)</span></button>'+
+  '<div id="dc-group-friends" '+(groupSelectOpen?'':'hidden')+' class="dc-group-friends">'+groupFriendRows()+'</div>'+
+  '<p class="dc-group-helper">Friends receive an invitation and join only when they tap Accept.</p></div>';
+}
+async function openGroupEditor(mode){
+ try{
+  groupEditorMode=mode;await refreshGroupFriends();
+  const c=conv(cur),create=mode==='create';
+  if(!create&&(!c||c.kind!=='group'||c.created_by!==me.id))return toast('Only the group creator can invite new members.',1);
+  inputModal(create?'Create a group':'Invite friends to '+c.title,
+   (create?'<label for="gn">Group name</label><input id="gn" maxlength="60" placeholder="Give your group a name" required>'+groupPhotoInput():'')+
+   groupInvitePicker(),
+   create?'Create Group & Send Invites':'Send Invitations',create?'grp':'addm2');
+ }catch(e){toast(e.message||'Could not load saved friends',1)}
+}
+async function uploadGroupPhoto(file){
+ if(!file||!file.size)return null;
+ const ext={'image/png':'png','image/jpeg':'jpg','image/webp':'webp'}[file.type];
+ if(!ext||file.size>5*1048576)throw new Error('Group photo must be JPG, PNG or WEBP under 5 MB');
+ const path=me.id+'/group-avatars/'+crypto.randomUUID()+'.'+ext;
+ const {error}=await sb.storage.from(BUCKET).upload(path,file,{contentType:file.type,upsert:false});
+ if(error)throw error;
+ return path;
+}
+async function saveGroupProfile(id,title,file,oldPath){
+ let path=oldPath||null;
+ if(file&&file.size)path=await uploadGroupPhoto(file);
+ const {error}=await sb.rpc('dc_update_group_profile',{p_group:id,p_title:title,p_avatar_path:path});
+ if(error)throw error;
+ return path;
+}
+function pendingGroupInvitesHtml(){
+ if(!groupInvites.length)return '';
+ return '<section class="dc-invite-box"><h3>Group invitations <span>'+groupInvites.length+'</span></h3>'+
+ groupInvites.map(x=>'<div class="dc-invite-card">'+avHtml(x.group_avatar_path,x.group_title,'s')+
+ '<div class="dc-invite-body"><b>'+esc(x.group_title||'Group')+'</b><small>Invited by '+esc(x.inviter_name||'Group administrator')+'</small>'+
+ '<div><button class="btn s" data-a="acceptGroupInvite" data-id="'+esc(x.invite_id)+'">✓ Accept</button>'+
+ '<button class="btn g s" data-a="declineGroupInvite" data-id="'+esc(x.invite_id)+'">Decline</button></div></div></div>').join('')+'</section>';
+}
 /* ---------- data ---------- */
 async function loadConvs(){
  const {data:cs,error}=await sb.from('conversations').select('id,kind,title,created_by,avatar_path,created_at').in('kind',['direct','group']);
