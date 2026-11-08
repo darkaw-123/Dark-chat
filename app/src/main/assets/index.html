@@ -741,7 +741,7 @@ async function boot(){
   await Promise.all([loadContactAliases(),loadBlockedUsers(),loadConvs(),loadStatus(),loadAnns(),loadLogs(),loadGroupInvites()]);
   await dcRefreshSellerChatLink();
   $('#boot').hidden=true;$('#app').hidden=false;
-   buildNav();render();subscribe();listenCalls();
+   buildNav();render();subscribe();listenCalls();syncDirectDeliveries();
    // Track buyer order confirmations even while they are chatting, not browsing Store.
    window.DCStore?.watchOrders?.();
   setTimeout(()=>checkPendingCall(),800);
@@ -1083,18 +1083,35 @@ function subscribe(){
    last[m.conversation_id]=m;
    if(m.conversation_id===cur)addMsg(m);
    if(m.sender_id!==me.id){const c=conv(m.conversation_id);if(m.conversation_id!==cur)unread[m.conversation_id]=(unread[m.conversation_id]||0)+1;
+    if(c.kind==='direct'&&!document.hidden){if(m.conversation_id===cur)markDirectRead(cur);else syncDirectDeliveries()}
     if(m.conversation_id!==cur||document.hidden)notify(cname(c),(c.kind==='group'?(names[m.sender_id]?.display_name||'')+': ':'')+prev(m))}
    render()})
- .on('postgres_changes',{event:'UPDATE',schema:'public',table:'messages'},({new:m})=>{if(!conv(m.conversation_id))return;last[m.conversation_id]=last[m.conversation_id]?.id===m.id?m:last[m.conversation_id];if(m.conversation_id===cur&&conv(cur))openConv(cur);else render()})
+ .on('postgres_changes',{event:'UPDATE',schema:'public',table:'messages'},({new:m})=>{
+  if(!conv(m.conversation_id))return;
+  last[m.conversation_id]=last[m.conversation_id]?.id===m.id?m:last[m.conversation_id];
+  if(m.conversation_id===cur&&conv(cur)){
+   if(!m.deleted_at&&!m.edited_at&&updateTickInChat(m))return;
+   openConv(cur);
+  }else render();
+ })
+ .on('postgres_changes',{event:'*',schema:'public',table:'dc_group_invites'},()=>{
+  if(!me)return;
+  loadGroupInvites().then(()=>{if(tab==='groups')render()}).catch(()=>{});
+ })
  .on('postgres_changes',{event:'INSERT',schema:'public',table:'announcements'},({new:a})=>{if(!a.is_active)return;anns.unshift(a);notify('Announcement',a.title);if(tab==='news')render()})
  .on('postgres_changes',{event:'*',schema:'public',table:'statuses'},async()=>{await loadStatus();if(tab==='chats')render()})
  .on('postgres_changes',{event:'*',schema:'public',table:'app_theme_settings'},({new:t})=>{if(t&&t.theme)applyTheme(t.theme)})
  .subscribe(s=>{
-   if(s==='SUBSCRIBED'){rtRetry=0;loadConvs().then(()=>{render();listenCalls()}).catch(()=>{});loadAnns().then(()=>{if(tab==='news')render()}).catch(()=>{});}
+   if(s==='SUBSCRIBED'){rtRetry=0;syncDirectDeliveries();loadGroupInvites().then(()=>{if(tab==='groups')render()}).catch(()=>{});loadConvs().then(()=>{render();listenCalls()}).catch(()=>{});loadAnns().then(()=>{if(tab==='news')render()}).catch(()=>{});}
    if((s==='CHANNEL_ERROR'||s==='TIMED_OUT'||s==='CLOSED')&&me&&db){const old=db;db=null;sb.removeChannel(old);setTimeout(()=>{if(me&&!db){subscribe();loadConvs().then(render).catch(()=>{})}},Math.min(15000,1500*++rtRetry))}
  });
 }
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&me&&booted)loadConvs().then(()=>{render();listenCalls();setTimeout(()=>checkPendingCall(),350)}).catch(()=>{})});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&me&&booted){
+ syncDirectDeliveries();
+ if(cur&&conv(cur)?.kind==='direct')markDirectRead(cur);
+ loadGroupInvites().then(()=>{if(tab==='groups')render()}).catch(()=>{});
+ loadConvs().then(()=>{render();listenCalls();setTimeout(()=>checkPendingCall(),350)}).catch(()=>{});
+}});
 
 /* ---------- calls (private 1:1 only) ---------- */
 
@@ -1264,7 +1281,7 @@ const A={
  copySellerChat:()=>dcShareMySellerChat(false),
  shareSellerChat:()=>dcShareMySellerChat(true),
  sell:()=>{tab='store';render();window.DCStore?.showSell?.();},
- tab:a=>{tab=a.dataset.t;if(tab==='store'){window.DCStore?.openShop?.();render();}else{render();if(tab==='me')dcRefreshSellerChatLink().then(()=>{if(tab==='me')render()});}},
+ tab:a=>{tab=a.dataset.t;if(tab==='store'){window.DCStore?.openShop?.();render();}else{render();if(tab==='groups')loadGroupInvites().then(()=>{if(tab==='groups')render()}).catch(()=>{});if(tab==='me')dcRefreshSellerChatLink().then(()=>{if(tab==='me')render()});}},
  color:()=>{const c=$('#mycolor')?.value;if(!c)return;localStorage.setItem(userThemeKey(),c);setUserTheme(c);toast('Your color is saved on this device.')},
  clearcalls:async()=>{if(!confirm('Delete all your call history?'))return;const {error}=await sb.from('call_logs').delete().eq('user_id',me.id);if(error)return toast('Could not delete call history: '+error.message,1);logs=[];render();toast('Call history deleted.')},
  reply:a=>{const el=a.closest('[data-mid]');if(el)replyMsg(el)},
@@ -1494,7 +1511,7 @@ document.addEventListener('click',e=>{
 });
 window.addEventListener('focus',()=>{if(me&&window.DarkChat?._t&&window.DarkChat._registeredUser!==me.id)window.DarkChat.registerPushToken(window.DarkChat._t)});
 
-window.addEventListener('online',()=>{if(me&&booted){if(!db)subscribe();loadConvs().then(()=>{render();listenCalls();checkPendingCall()}).catch(()=>{});}});
+window.addEventListener('online',()=>{if(me&&booted){syncDirectDeliveries();if(cur&&conv(cur)?.kind==='direct')markDirectRead(cur);if(!db)subscribe();loadConvs().then(()=>{render();listenCalls();checkPendingCall()}).catch(()=>{});}});
 
 /* Single-file mode: external service worker intentionally not registered. */
 </script>
