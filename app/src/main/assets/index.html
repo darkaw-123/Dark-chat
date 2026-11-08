@@ -883,7 +883,7 @@ function render(){
   if(tab==='chats'){
    l.innerHTML=stripHtml()+chatSearchBar()+'<div id="dc-chat-search-results">'+renderDirectChatRows()+'</div>';
   }else{
-   l.innerHTML=rows.length?rows.map(rowHtml).join(''):'<div class="empty"><b>No groups yet</b>Tap + to create a group with your friends.</div>';
+   l.innerHTML=pendingGroupInvitesHtml()+(rows.length?rows.map(rowHtml).join(''):'<div class="empty"><b>No groups yet</b>Tap + to create a group and invite your saved friends.</div>');
   }
  }else if(tab==='news'){
   l.innerHTML=(anns.length?anns.map(a=>'<div class="ann"><h4>'+esc(a.title)+'</h4><p>'+esc(a.body)+'</p>'+(a.image_url?'<img alt="" src="'+esc(a.image_url)+'">':'')+(a.link_url?'<p style="margin-top:8px"><a style="color:var(--p3)" target="_blank" rel="noopener" href="'+esc(a.link_url)+'">Open link</a></p>':'')+'<small>'+new Date(a.created_at).toLocaleString()+'</small></div>').join(''):'<div class="empty"><b>No announcements</b>Updates from the DARK CHAT team show up here.</div>');
@@ -932,7 +932,7 @@ async function openConv(id){
  const direct=c.kind==='direct',peer=direct?other(c).user_id:null,saved=direct&&!!contactAliases[peer],blocked=direct&&blockedUsers.has(peer);
  const tools=direct?'<button class="ib" data-a="contactOptions" aria-label="Edit or block contact">⋯</button>'+
   (blocked?'':'<button class="ib" data-a="vcall" data-k="voice" aria-label="Voice call">'+ic('phone')+'</button><button class="ib" data-a="vcall" data-k="video" aria-label="Video call">'+ic('video')+'</button>'):
-  '<button class="ib" data-a="addm" aria-label="Add members">'+ic('plus')+'</button>';
+  (c.created_by===me.id?'<button class="ib" data-a="editGroup" aria-label="Edit group photo and name">✎</button><button class="ib" data-a="addm" aria-label="Invite saved friends">'+ic('plus')+'</button>':'');
  const notice=!direct?'':blocked?
   '<div class="dc-contact-notice"><span>⛔ You blocked this contact. Private messages and calls are disabled.</span><button class="btn g s" data-a="unblockfriend">Unblock</button></div>':
   !saved?'<div class="dc-contact-notice"><span>New message from an unsaved contact</span><div><button class="btn s" data-a="renamefriend">＋ Add Contact</button><button class="btn r s" data-a="blockfriend">⛔ Block</button></div></div>':
@@ -1213,7 +1213,7 @@ const A={
  open:a=>openConv(a.dataset.id),
  back:()=>{$('#chat').classList.remove('open');cur=null;render()},
  close:closeM,
- add:()=>{if(tab==='chats')inputModal('Add a friend','<p class="dc-contact-subtitle">Enter their real DARK CHAT username, then choose a private name shown only on your account.</p><label for="fu">Friend’s real username *</label><input id="fu" maxlength="32" required autocapitalize="none" spellcheck="false" placeholder="e.g. ahmed123"><label for="fn">Create name / Save as *</label><input id="fn" maxlength="60" required placeholder="e.g. Ahmed Office"><p class="dc-contact-subtitle">Your friend keeps their own original username. Only you will see this saved name.</p>','Add friend & start chat','friend');else if(tab==='groups')inputModal('New group','<label for="gn">Group name</label><input id="gn" maxlength="60"><label for="gm">Usernames (separated by commas)</label><input id="gm" autocapitalize="none" spellcheck="false">','Create group','grp')},
+ add:()=>{if(tab==='chats')inputModal('Add a friend','<p class="dc-contact-subtitle">Enter their real DARK CHAT username, then choose a private name shown only on your account.</p><label for="fu">Friend’s real username *</label><input id="fu" maxlength="32" required autocapitalize="none" spellcheck="false" placeholder="e.g. ahmed123"><label for="fn">Create name / Save as *</label><input id="fn" maxlength="60" required placeholder="e.g. Ahmed Office"><p class="dc-contact-subtitle">Your friend keeps their own original username. Only you will see this saved name.</p>','Add friend & start chat','friend');else if(tab==='groups')openGroupEditor('create')},
  friend:a=>guarded(a,async()=>{
   const u=$('#fu').value.trim().toLowerCase(),alias=$('#fn').value.trim();
   if(!/^[a-z0-9_.]{3,32}$/.test(u))throw new Error('Enter a valid real username.');
@@ -1245,13 +1245,64 @@ const A={
   await saveContactAlias(other(c).user_id,name);
   const current=cur;closeM();render();await openConv(current);toast('Saved contact name updated.');
  }),
- grp:a=>guarded(a,async()=>{const n=$('#gn').value.trim(),m=pick($('#gm').value);if(n.length<2)throw new Error('Group name must be at least 2 characters.');if(!m.length)throw new Error('Add at least one username.');
-  const {data,error}=await sb.rpc('create_group_chat',{group_title:n,member_usernames:m});if(error)throw error;
-  await loadConvs();closeM();render();openConv(data)}),
- addm:()=>inputModal('Add members','<label for="gm">Usernames (separated by commas)</label><input id="gm" autocapitalize="none" spellcheck="false">','Add','addm2'),
- addm2:a=>guarded(a,async()=>{const m=pick($('#gm').value);if(!m.length)throw new Error('Enter at least one username.');
-  const {data,error}=await sb.rpc('add_group_members',{target_conversation:cur,member_usernames:m});if(error)throw error;
-  const id=cur;await loadConvs();closeM();toast(data+' member(s) added.');openConv(id)}),
+
+ grp:a=>guarded(a,async()=>{
+  const title=$('#gn').value.trim(),chosen=chosenGroupNames();
+  if(title.length<2||title.length>60)throw Error('Group name must be 2–60 characters');
+  if(!chosen.length)throw Error('Tap + and select at least one saved friend');
+  const file=$('#dc-group-photo')?.files?.[0];
+  if(file&&file.size>5*1048576)throw Error('Group photo must be under 5 MB');
+  const {data:id,error}=await sb.rpc('dc_create_group_with_invites',{p_title:title,p_members:chosen});
+  if(error)throw error;
+  if(file?.size){try{await saveGroupProfile(id,title,file,null)}
+   catch(photoError){toast('Group created, but photo could not be saved: '+photoError.message,1)}
+  }
+  closeM();groupSelected=new Set();tab='groups';await loadConvs();render();await openConv(id);
+  toast(chosen.length+' invitation(s) sent. Friends must accept to join.');
+ }),
+ addm:()=>openGroupEditor('invite'),
+ addm2:a=>guarded(a,async()=>{
+  const selected=chosenGroupNames(),id=cur;
+  if(!selected.length)throw Error('Select at least one saved friend first');
+  const {data,error}=await sb.rpc('dc_send_group_invites',{p_group:id,p_invitees:selected});
+  if(error)throw error;
+  closeM();toast(data+' group invitations sent. No one joins without accepting.');
+ }),
+ toggleGroupPicker:()=>{
+  groupSelectOpen=!groupSelectOpen;
+  const el=$('#dc-group-friends');if(el)el.hidden=!groupSelectOpen;
+ },
+ editGroup:()=>{
+  const c=conv(cur);
+  if(!c||c.kind!=='group'||c.created_by!==me.id)return toast('Only group creator can edit group details.',1);
+  inputModal('Edit Group Profile','<label for="dc-group-title">Group name</label>'+
+   '<input id="dc-group-title" maxlength="60" value="'+esc(c.title||'')+'">'+
+   groupPhotoInput()+
+   (c.avatar_path?'<p class="dc-group-helper">Current picture remains unless a new one is chosen.</p>':''),
+   'Save Group Profile','saveGroup');
+ },
+ saveGroup:a=>guarded(a,async()=>{
+  const c=conv(cur),title=$('#dc-group-title').value.trim(),file=$('#dc-group-photo')?.files?.[0];
+  if(!c||c.kind!=='group')throw Error('Open a group');
+  if(title.length<2||title.length>60)throw Error('Group name must be 2–60 characters');
+  const path=await saveGroupProfile(cur,title,file,c.avatar_path);
+  c.title=title;c.avatar_path=path;
+  const id=cur;closeM();render();await openConv(id);
+  toast('Group name and photo updated');
+ }),
+ acceptGroupInvite:a=>guarded(a,async()=>{
+  const {data,error}=await sb.rpc('dc_respond_group_invite',{p_invite:a.dataset.id,p_accept:true});
+  if(error)throw error;
+  await Promise.all([loadGroupInvites(),loadConvs()]);tab='groups';render();listenCalls();
+  if(conv(data))await openConv(data);
+  toast('Invitation accepted. You joined the group.');
+ }),
+ declineGroupInvite:a=>guarded(a,async()=>{
+  const {error}=await sb.rpc('dc_respond_group_invite',{p_invite:a.dataset.id,p_accept:false});
+  if(error)throw error;
+  await loadGroupInvites();render();toast('Invitation declined.');
+ }),
+
  send:()=>send(),rec:()=>toggleRec(),
  vcall:a=>startCall(a.dataset.k),acall:acceptCall,
  dcall:()=>{if(call){reliableCallEnd(call.cid,'decline');endCall('missed',false)}},
