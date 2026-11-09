@@ -462,6 +462,7 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 
 .dc-msg-ticks{display:inline-block;margin-left:6px;font-weight:700;font-size:13px;color:var(--mu);letter-spacing:-2px;white-space:nowrap}
 .dc-msg-ticks.read{color:#38aaff}.dc-msg-ticks.delivered{color:#b9acc9}.dc-msg-ticks.sent{color:#9b8dac}
+/* 9.10 · Pre-warmed call setup, immediate accepted-call UI and cleaner connection state */
 /* 9.9 · Professional signup avatar and in-call camera toggle */
 #dc-signup-photo-row{margin:24px auto 22px;text-align:center}
 .dc-avatar-pick{position:relative;display:grid;place-items:center;width:112px;height:112px;margin:0 auto 10px;cursor:pointer;border-radius:50%;background:linear-gradient(145deg,#392459,#161122);box-shadow:0 0 0 5px #8b5cf61b,0 10px 30px #0007;transition:transform .2s,box-shadow .2s}
@@ -782,7 +783,7 @@ async function boot(){
  try{if(db)sb.removeChannel(db)}catch(_){}
  db=null;
  Object.values(chans).forEach(c=>{try{sb.removeChannel(c)}catch(_){}});chans={};
- if(call){try{clearTimeout(call.timer);call.pc?.close();call.stream?.getTracks().forEach(t=>t.stop())}catch(_){}call=null}
+ if(call){try{clearTimeout(call.timer);clearTimeout(call.connectTimer);clearInterval(call.clock);call.pc?.close();call.stream?.getTracks().forEach(t=>t.stop())}catch(_){}call=null}
  const cu=$('#callUI');if(cu){cu.hidden=true;cu.innerHTML=''}
  if(rec){try{rec.mr?.stop()}catch(_){}rec=null}
  me=null;prof=null;convs=[];names={};last={};unread={};cur=null;tab='chats';contactAliases={};chatSearchTerm='';chatSearchOpen=false;blockedUsers=new Set();groupInvites=[];groupFriends=[];groupSelected=new Set();dcSellerHasShop=false;dcSellerShareOrigin=DC_DEFAULT_SHARE_SITE;
@@ -1157,6 +1158,7 @@ function showIncomingCall(cid,kind,id){
  if(call||!conv(cid)||conv(cid).kind!=='direct')return false;
  if(blockedUsers.has(other(conv(cid)).user_id)){if(id)dismissCallInvite(id);return false;}
  call={cid,kind:kind==='video'?'video':'voice',dir:'in',pending:[],ok:false,inviteId:id||null};
+ call.icePromise=iceServers(); // Start TURN lookup while the recipient sees the incoming call.
  callUI(ringHtml('Incoming '+call.kind+' call','<button class="ib" style="background:#e11d48" data-a="dcall">'+ic('end')+'</button><button class="ib" style="background:var(--ok)" data-a="acall">'+ic('ok')+'</button>'),false);
  call.timer=setTimeout(()=>endCall('missed',true),40000);
  notify('Incoming '+call.kind+' call',peerOf(cid).display_name||'');return true
@@ -1195,7 +1197,26 @@ window.addEventListener('darkchat-open-call',e=>{
  if(me&&booted)setTimeout(()=>checkPendingCall(),100)
 });
 
-async function iceServers(){try{const {data:{session}}=await sb.auth.getSession();const r=await fetch(U+'/functions/v1/darkchat-webrtc-ice',{headers:{Authorization:'Bearer '+session.access_token,apikey:K}});const j=await r.json();if(j.iceServers)return j.iceServers}catch(_){}return [{urls:'stun:stun.l.google.com:19302'}]}
+/* Fetch TURN credentials ahead of answer, never block the call indefinitely. */
+let iceCache=null,iceCacheTime=0,iceInFlight=null;
+async function iceServers(){
+ if(iceCache&&Date.now()-iceCacheTime<60000)return iceCache;
+ if(iceInFlight)return iceInFlight;
+ iceInFlight=(async()=>{
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),4500);
+  try{
+   const {data:{session}}=await sb.auth.getSession();
+   if(!session)throw new Error('Not signed in');
+   const r=await fetch(U+'/functions/v1/darkchat-webrtc-ice',{headers:{Authorization:'Bearer '+session.access_token,apikey:K},signal:controller.signal});
+   if(!r.ok)throw new Error('ICE server HTTP '+r.status);
+   const j=await r.json();
+   if(Array.isArray(j.iceServers)&&j.iceServers.length){iceCache=j.iceServers;iceCacheTime=Date.now();return iceCache}
+  }catch(e){console.warn('Relay credentials unavailable; calls may be less private/reliable:',e)}
+  finally{clearTimeout(timeout)}
+  return [{urls:'stun:stun.l.google.com:19302'}];
+ })();
+ try{return await iceInFlight}finally{iceInFlight=null}
+}
 async function listenCalls(){
  const {data:{session}}=await sb.auth.getSession();if(session)await sb.realtime.setAuth(session.access_token);
  convs.filter(c=>c.kind==='direct'&&!chans[c.id]).forEach(c=>{
@@ -1246,10 +1267,12 @@ async function startCall(kind){
  const c=conv(cur);if(!c||c.kind!=='direct')return toast('Only private chats can start calls.',1);
  const recipient=other(c)?.user_id;if(!recipient)return toast('No recipient for this call.',1);
  if(blockedUsers.has(recipient))return toast('Unblock this contact before calling.',1);
- call={cid:c.id,kind,dir:'out',pending:[],ok:false,inviteId:null};
+ call={cid:c.id,kind,dir:'out',pending:[],ok:false,inviteId:null,offerSent:false,earlyCandidates:[]};
+ call.icePromise=iceServers(); // Parallel with microphone/camera permission.
  try{call.stream=await media(kind)}catch(e){call=null;return toast(e.message,1)}
  callUI(ringHtml('Calling…','<button class="ib" style="background:#e11d48" data-a="xcall">'+ic('end')+'</button>'),kind==='video');
  if(kind==='video')$('#lv').srcObject=call.stream;
+ call.prepare=prepareOutgoing(call); // Prepare SDP + ICE while the phone is ringing.
  try{
   const {data,error}=await sb.from('call_invites').insert({
    conversation_id:c.id,caller_id:me.id,recipient_id:recipient,kind:kind,
@@ -1263,19 +1286,75 @@ async function startCall(kind){
  sig(c.id,{t:'invite',kind,call_invite_id:call.inviteId});
  call.timer=setTimeout(()=>{toast('No answer.',1);endCall('missed',true)},40000);
 }
-async function newPC(){
- const servers=await iceServers();const relay=servers.some(s=>[s.urls].flat().some(u=>typeof u==='string'&&/^turns?:/i.test(u)));
-  const pc=new RTCPeerConnection({iceServers:servers,iceTransportPolicy:relay?'relay':'all'});
-  if(!relay)console.warn('Dark Chat privacy: TURN relay not available; peer-to-peer IP exposure is possible.');call.pc=pc;
- call.stream.getTracks().forEach(t=>pc.addTrack(t,call.stream));
- pc.ontrack=e=>{const r=$('#rv');if(r&&r.srcObject!==e.streams[0]){r.srcObject=e.streams[0];r.play&&r.play().catch(()=>{})}};
- pc.onicecandidate=e=>{if(e.candidate&&call)sig(call.cid,{t:'ice',c:e.candidate})};
- pc.onconnectionstatechange=()=>{if(!call)return;const s=pc.connectionState;
-  if(s==='connected'){call.ok=true;callState('Connected')}
-  else if(s==='disconnected')callState('Reconnecting…');
-  else if(s==='failed'){toast('Call connection failed.',1);endCall('failed',true)}};
+async function newPC(c=call){
+ if(!c||call!==c)return null;
+ if(c.pc)return c.pc;
+ const servers=await (c.icePromise||iceServers());
+ if(call!==c)return null;
+ const relay=servers.some(s=>[s.urls].flat().some(u=>typeof u==='string'&&/^turns?:/i.test(u)));
+ const pc=new RTCPeerConnection({iceServers:servers,iceTransportPolicy:relay?'relay':'all',iceCandidatePoolSize:2});
+ if(!relay)console.warn('Dark Chat privacy: TURN relay not available; peer-to-peer IP exposure is possible.');
+ c.pc=pc;
+ c.stream.getTracks().forEach(t=>pc.addTrack(t,c.stream));
+ pc.ontrack=e=>{
+  if(call!==c)return;
+  const r=$('#rv');
+  if(r&&e.streams?.[0]&&r.srcObject!==e.streams[0]){r.srcObject=e.streams[0];r.play?.().catch(()=>{})}
+  if(c.kind==='video'&&e.track.kind==='video'){
+   const hide=()=>{if(call===c&&c.ok){const info=$('#callUI .inf');if(info)info.style.display='none'}};
+   e.track.addEventListener('unmute',hide,{once:true});if(!e.track.muted)hide();
+  }
+ };
+ pc.onicecandidate=e=>{
+  if(!e.candidate||call!==c)return;
+  if(c.dir==='out'&&!c.offerSent){c.earlyCandidates.push(e.candidate);return}
+  sig(c.cid,{t:'ice',c:e.candidate});
+ };
+ pc.onconnectionstatechange=()=>{
+  if(call!==c)return;
+  const state=pc.connectionState;
+  if(state==='connected'){
+   c.ok=true;clearTimeout(c.connectTimer);
+   if(!c.connectedAt)c.connectedAt=Date.now();
+   callState('00:00');
+   if(!c.clock)c.clock=setInterval(()=>{
+    if(call!==c){clearInterval(c.clock);return}
+    const sec=Math.floor((Date.now()-c.connectedAt)/1000);
+    callState(String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0'));
+   },1000);
+   if(c.kind==='video'&&$('#rv')?.readyState>=2){const info=$('#callUI .inf');if(info)info.style.display='none'}
+  }else if(state==='disconnected')callState('Signal interrupted');
+  else if(state==='failed'){toast('Call connection failed. Please try again.',1);endCall('failed',true)}
+ };
+ return pc;
 }
-async function flush(){while(call&&call.pending.length)try{await call.pc.addIceCandidate(call.pending.shift())}catch(_){}}
+async function prepareOutgoing(c){
+ try{
+  const pc=await newPC(c);
+  if(!pc||call!==c)return false;
+  const offer=await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  return true;
+ }catch(e){console.warn('Call preconnection:',e);c.prepareError=e;return false}
+}
+async function sendPreparedOffer(c){
+ if(!c||call!==c||c.offerSent)return;
+ if(c.prepare)await c.prepare;
+ if(call!==c)return;
+ const pc=await newPC(c);
+ if(!pc)throw new Error('Call ended');
+ if(!pc.localDescription){
+  const offer=await pc.createOffer();await pc.setLocalDescription(offer);
+ }
+ c.offerSent=true;
+ const sent=await sig(c.cid,{t:'offer',sdp:pc.localDescription});
+ if(sent==='error'||sent==='no-channel')throw new Error('Call signaling is offline');
+ for(const candidate of c.earlyCandidates.splice(0)){
+  if(call!==c)return;
+  await sig(c.cid,{t:'ice',c:candidate});
+ }
+}
+async function flush(){while(call&&call.pc&&call.pending.length)try{await call.pc.addIceCandidate(call.pending.shift())}catch(e){console.warn('ICE candidate rejected',e)}}
 async function onSig(cid,p){
  if(p.from===me.id)return;
  const c=conv(cid);if(c?.kind==='direct'&&blockedUsers.has(other(c).user_id))return;
@@ -1288,23 +1367,51 @@ async function onSig(cid,p){
   showIncomingCall(cid,p.kind,p.call_invite_id);return;
  }
  if(!call||call.cid!==cid)return;
- if(p.t==='accept'&&call.dir==='out'){clearTimeout(call.timer);callState('Connecting…');
-  try{await newPC();const o=await call.pc.createOffer();await call.pc.setLocalDescription(o);sig(cid,{t:'offer',sdp:o})}catch(e){toast('Could not start the call.',1);endCall('failed',true)}}
- else if(p.t==='offer'&&call.pc){try{await call.pc.setRemoteDescription(p.sdp);await flush();const a=await call.pc.createAnswer();await call.pc.setLocalDescription(a);sig(cid,{t:'answer',sdp:a})}catch(e){toast('Could not connect the call.',1);endCall('failed',true)}}
- else if(p.t==='answer'&&call.pc){try{await call.pc.setRemoteDescription(p.sdp);await flush()}catch(_){endCall('failed',true)}}
+ if(p.t==='accept'&&call.dir==='out'&&!call.offerSent){
+  const c=call;clearTimeout(c.timer);callState('');
+  c.connectTimer=setTimeout(()=>{if(call===c&&!c.ok){toast('The other device could not connect. Please try again.',1);endCall('failed',true)}},20000);
+  try{await sendPreparedOffer(c)}catch(e){console.warn('Call offer failed:',e);if(call===c){toast('Could not start the call.',1);endCall('failed',true)}}
+ }
+ else if(p.t==='offer'&&call.pc&&!call.offerProcessed){
+  call.offerProcessed=true;
+  try{
+   await call.pc.setRemoteDescription(p.sdp);await flush();
+   const answer=await call.pc.createAnswer();
+   await call.pc.setLocalDescription(answer);
+   await sig(cid,{t:'answer',sdp:call.pc.localDescription});
+  }catch(e){console.warn('Call answer failed:',e);toast('Could not connect the call.',1);endCall('failed',true)}
+ }
+ else if(p.t==='answer'&&call.pc&&call.pc.signalingState==='have-local-offer'){try{await call.pc.setRemoteDescription(p.sdp);await flush()}catch(e){console.warn('Call answer rejected:',e);endCall('failed',true)}}
  else if(p.t==='ice'&&p.c){if(call.pc&&call.pc.remoteDescription)call.pc.addIceCandidate(p.c).catch(()=>{});else call.pending.push(p.c)}
  else if(p.t==='decline'){toast(p.busy?'User is busy.':'Call declined.',1);endCall('missed',false)}
  else if(p.t==='end'){endCall(call.ok?'':'missed',false)}
 }
 async function acceptCall(){
- if(!call||call.dir!=='in')return;clearTimeout(call.timer);
- try{call.stream=await media(call.kind)}catch(e){toast(e.message,1);sig(call.cid,{t:'decline'});return endCall('failed',false)}
- callUI(ringHtml('Connecting…','<button class="ib" style="background:#e11d48" data-a="xcall">'+ic('end')+'</button>'),call.kind==='video');
- if(call.kind==='video')$('#lv').srcObject=call.stream;
- try{await newPC();sig(call.cid,{t:'accept'});if(call.inviteId)dismissCallInvite(call.inviteId)}catch(e){toast('Could not start the call.',1);endCall('failed',true)}
+ if(!call||call.dir!=='in'||call.answering)return;
+ const c=call;c.answering=true;clearTimeout(c.timer);
+ // Show the call UI immediately; network negotiation and media permissions run behind it.
+ callUI(ringHtml('','<button class="ib" style="background:#e11d48" data-a="xcall">'+ic('end')+'</button>'),c.kind==='video');
+ try{
+  const stream=await media(c.kind);
+  if(call!==c){stream.getTracks().forEach(t=>t.stop());return}
+  c.stream=stream;
+  // Re-render once to enable the flip-camera control without resetting the remote stream.
+  const controls=$('#callUI .ctl');
+  if(controls&&c.kind==='video'&&!$('#callFlipBtn'))controls.insertAdjacentHTML('afterbegin','<button type="button" class="ib" id="callFlipBtn" data-a="flipcam" aria-label="Switch front or back camera" title="Switch camera">'+ic('flipcam')+'</button>');
+  if(c.kind==='video')$('#lv').srcObject=c.stream;
+  await newPC(c);
+  if(call!==c)return;
+  c.connectTimer=setTimeout(()=>{if(call===c&&!c.ok){toast('The other device could not connect. Please try again.',1);endCall('failed',true)}},20000);
+  const result=await sig(c.cid,{t:'accept'});
+  if(result==='no-channel'||result==='error')throw new Error('Call signaling is offline');
+  if(c.inviteId)dismissCallInvite(c.inviteId);
+ }catch(e){
+  console.warn('Accept call failed:',e);
+  if(call===c){toast(e.message||'Could not start the call.',1);sig(c.cid,{t:'decline'});endCall('failed',false)}
+ }
 }
 function endCall(why,notifyPeer){
- if(!call)return;const c=call;call=null;clearTimeout(c.timer);
+ if(!call)return;const c=call;call=null;clearTimeout(c.timer);clearTimeout(c.connectTimer);clearInterval(c.clock);
  if(notifyPeer)reliableCallEnd(c.cid,'end');
  if(c.inviteId)dismissCallInvite(c.inviteId);
  try{c.pc&&c.pc.close()}catch(_){}try{c.stream&&c.stream.getTracks().forEach(t=>t.stop())}catch(_){}
