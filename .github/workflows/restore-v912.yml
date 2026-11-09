@@ -1,0 +1,33 @@
+name: Restore original V9.12 public release assets
+on:
+  push:
+    paths:
+      - '.github/workflows/restore-v912.yml'
+  workflow_dispatch:
+jobs:
+  restore-assets:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Restore V9.12 original APK, HTML and unsigned AAB
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p old-apk old-html old-aab
+          # V9.12 original signed-debug build before the V9.13 version bump:
+          gh run download 42647756100 -n DARK_CHAT_V9_12_STORE_FOR_ALL_GUEST_CHECKOUT_APK -D old-apk --repo "$GITHUB_REPOSITORY"
+          gh run download 42647756100 -n DARK_CHAT_V9_12_HTML_Source -D old-html --repo "$GITHUB_REPOSITORY"
+          gh run download 42647756100 -n DARK_CHAT_V9_12_UNSIGNED_RELEASE_AAB -D old-aab --repo "$GITHUB_REPOSITORY"
+          test -s old-apk/app-debug.apk
+          test -s old-html/Dark_Chat_V9_12.html
+          test -s old-aab/app-release.aab
+          cp old-apk/app-debug.apk Dark-Chat-v9.12.apk
+          cp old-html/Dark_Chat_V9_12.html index.html
+          cp index.html DarkChat_V9_12_index.html
+          cp old-aab/app-release.aab Dark-Chat-v9.12-unsigned.aab
+          gh release upload v9.12 Dark-Chat-v9.12.apk index.html DarkChat_V9_12_index.html Dark-Chat-v9.12-unsigned.aab --clobber --repo "$GITHUB_REPOSITORY"
+          echo "Original V9.12 assets restored. This workflow never publishes a new version."
