@@ -21,6 +21,7 @@ import com.google.android.gms.ads.MobileAds;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.provider.Settings;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
@@ -149,6 +150,7 @@ public final class MainActivity extends Activity {
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface public void refreshToken() { runOnUiThread(() -> checkFirebaseToken()); }
             @JavascriptInterface public void requestPermission() { runOnUiThread(() -> requestPushPermission()); }
+            @JavascriptInterface public void openNotificationSettings() { runOnUiThread(() -> openAppNotificationSettings()); }
         }, "DarkChatDevice");
 
         final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
@@ -312,6 +314,46 @@ public final class MainActivity extends Activity {
         runOnUiThread(() -> webView.evaluateJavascript(script, null));
     }
 
+
+    private boolean isAppNotificationsEnabled() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false;
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        return nm == null || nm.areNotificationsEnabled();
+    }
+
+    private void openAppNotificationSettings() {
+        try {
+            Intent i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            i.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+            startActivity(i);
+        } catch (Exception ex) {
+            Intent fallback = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", getPackageName(), null));
+            try { startActivity(fallback); } catch (Exception ignored) {}
+        }
+    }
+
+    private void updateNotificationPermissionStatus() {
+        if (!isAppNotificationsEnabled()) {
+            sendPushStatus("notification_blocked",
+                "Android notifications are disabled. Open app notification settings to allow them.");
+            return;
+        }
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        if (Build.VERSION.SDK_INT >= 26 && nm != null) {
+            NotificationChannel msg = nm.getNotificationChannel("default");
+            NotificationChannel calls = nm.getNotificationChannel(DarkChatMessagingService.CALL_CHANNEL);
+            if ((msg != null && msg.getImportance() == NotificationManager.IMPORTANCE_NONE) ||
+                (calls != null && calls.getImportance() == NotificationManager.IMPORTANCE_NONE)) {
+                sendPushStatus("notification_blocked",
+                    "Messages or incoming calls channel is disabled in Android notification settings.");
+                return;
+            }
+        }
+        sendPushStatus("notification_enabled", "Android notifications allowed. Firebase delivery still depends on network.");
+    }
+
     private void checkFirebaseToken() {
         if (webView == null) return;
         sendPushStatus("checking", "Checking Firebase...");
@@ -323,9 +365,7 @@ public final class MainActivity extends Activity {
         FirebaseMessaging.getInstance().getToken()
             .addOnSuccessListener(this::deliverToken)
             .addOnFailureListener(err -> sendPushStatus("token_error", err.getMessage() == null ? "Firebase unavailable" : err.getMessage()));
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-            sendPushStatus("notification_blocked", "Android notification permission is not granted");
+        updateNotificationPermissionStatus();
     }
 
     private void requestPushPermission() {
@@ -348,9 +388,9 @@ public final class MainActivity extends Activity {
     @Override public void onRequestPermissionsResult(int req, String[] permissions, int[] grants) {
         super.onRequestPermissionsResult(req, permissions, grants);
         if (req == 300) {
-            if (grants.length == 0 || grants[0] != PackageManager.PERMISSION_GRANTED)
-                sendPushStatus("notification_blocked", "User denied Android notification permission");
-            else checkFirebaseToken();
+            updateNotificationPermissionStatus();
+            if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED)
+                checkFirebaseToken();
         }
         if (req == AV_REQUEST && pendingWebPermission != null) {
             PermissionRequest request = pendingWebPermission;
