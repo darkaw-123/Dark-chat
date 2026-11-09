@@ -136,3 +136,13 @@ jobs:
           test -s app/build/outputs/bundle/release/app-release.aab
           cp app/build/outputs/bundle/release/app-release.aab Dark-Chat-v9.11-unsigned.aab
           gh release upload v9.11 Dark-Chat-v9.11-unsigned.aab --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Attach standalone V9.11 HTML to GitHub Release
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test -s dist/Dark_Chat_V9_11.html
+          cp dist/Dark_Chat_V9_11.html DarkChat_V9_11_index.html
+          gh release upload v9.11 DarkChat_V9_11_index.html --clobber --repo "$GITHUB_REPOSITORY"
