@@ -93,7 +93,25 @@ jobs:
           grep -F 'android:label="Dark Chat"' app/src/main/AndroidManifest.xml
           grep -F 'WindowManager.LayoutParams.FLAG_SECURE' app/src/main/java/com/darkchat/app/MainActivity.java
       - name: Build V9.13 APK and Android App Bundles
-        run: gradle :app:assembleDebug :app:bundleDebug :app:bundleRelease --no-daemon --stacktrace
+        run: gradle :app:assembleDebug :app:assembleRelease :app:bundleDebug :app:bundleRelease --no-daemon --stacktrace
+      - name: Collect unsigned release APK and SDK signing tool for private signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/unsigned-release
+          find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk dist/unsigned-release/app-release-unsigned.apk
+          apktool="$(find "$ANDROID_HOME/build-tools" -mindepth 2 -maxdepth 2 -name apksigner | sort -V | tail -n 1)"
+          test -n "$apktool"
+          cp "$(dirname "$apktool")/lib/apksigner.jar" dist/unsigned-release/apksigner.jar
+          test -s dist/unsigned-release/apksigner.jar
+      - name: Upload unsigned release for private signing (not installable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: DARK_CHAT_V9_13_UNSIGNED_APK_AND_SIGNER_FOR_PRIVATE_SIGNING
+          path: dist/unsigned-release/
+          if-no-files-found: error
       - name: Upload debug AAB (testing only)
         uses: actions/upload-artifact@v4
         with:
