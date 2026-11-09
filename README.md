@@ -1,19 +1,34 @@
-# DARK CHAT — Android APK + Firebase FCM
+# DARK CHAT — V9.12 (Android)
 
-یہ DARK CHAT کا Android WebView سورس پروجیکٹ ہے۔ HTML ایپ APK کے اندر پیک کی گئی ہے؛ اس کے لیے ویب سائٹ کا لنک ضروری نہیں۔
+**Latest public Android APK:** [Download Dark Chat V9.12](https://github.com/darkaw-123/Dark-chat/releases/download/v9.12/Dark-Chat-v9.12.apk)
 
-- GitHub Actions میں مفت Android debug APK بنے گی۔
-- Firebase Cloud Messaging (FCM) کا مقامی Android کوڈ شامل ہے۔
-- SMS/voice messages کی اطلاعات Supabase Edge Function اور رجسٹرڈ FCM ٹوکن پر منحصر ہیں۔
-- ایپ میں اشتہارات کا کوڈ شامل نہیں۔
-- Android Force Stop کے بعد نوٹیفکیشن آنے کی ضمانت نہیں۔
+**All public releases and source files:** [GitHub Releases](https://github.com/darkaw-123/Dark-chat/releases/tag/v9.12)
 
-## APK حاصل کرنا
+## ڈارک چیٹ ڈاؤن لوڈ
 
-GitHub > Actions > **Build DARK CHAT APK with Free FCM** > تازہ کامیاب run > Artifacts > **DARK_CHAT_FREE_FCM_APK**۔ Artifact میں `app-debug.apk` ہوگی۔
+یہ Dark Chat کا آفیشل سورس پروجیکٹ ہے۔ اینڈرائیڈ APK، Firebase Cloud Messaging نوٹیفکیشن، وائس/ویڈیو کال، چیٹ، گروپس اور اسٹور کا موجودہ سسٹم شامل ہے۔
 
-## احتیاط
+- **APK:** اوپر موجود `Download Dark Chat V9.12` لنک سے براہِ راست حاصل کریں۔
+- **HTML:** [index.html (V9.12)](https://github.com/darkaw-123/Dark-chat/releases/download/v9.12/index.html)
+- **Source:** [app/src/main/assets/index.html](app/src/main/assets/index.html)
+- **GitHub Actions:** [Build status & testing artifacts](https://github.com/darkaw-123/Dark-chat/actions/workflows/build-apk.yml)
 
-اس ریپوزٹری کو فی الحال Public رکھا گیا ہے۔ خفیہ Firebase service-account JSON، Supabase service-role key یا کوئی پاس ورڈ اس میں شامل نہ کریں۔ `google-services.json` صرف Android Firebase client configuration ہے، ایڈمن کا خفیہ credential نہیں۔
+## V9.12 کی خصوصیات
 
-Debug APK ذاتی جانچ کے لیے ہے۔ اصل استعمال کے لیے release signing اور حقیقی موبائل پر جانچ درکار ہے۔
+- پسندیدہ V9.10 UI برقرار، V9.11 کی ظاہری تبدیلی واپس لی گئی۔
+- پروفائل فوٹو اپلوڈ کرتے ہوئے گول فریم میں زوم اور تصویر موو کرنے کی سہولت۔
+- ڈیفالٹ DP اور کسی دوست کی DP کو بڑا کر کے دیکھنا۔
+- کسی دوست کو اپنی چیٹ لسٹ سے ہٹانا؛ دوبارہ پیغام آنے یا محفوظ نام سے تلاش کرنے پر چیٹ واپس کھولنا۔
+- گروپس، اسٹور، وائس/ویڈیو کال اور Firebase نوٹیفکیشن۔
+
+## اہم: AdMob اشتہارات
+
+موجودہ GitHub سے ڈاؤن لوڈ ہونے والی **V9.12 APK Debug build** ہے۔ اس میں Google AdMob SDK اور test banner موجود ہے۔ یہ **test ad unit** استعمال کرتی ہے، اس لیے **اصل اشتہارات کی آمدنی نہیں ہوتی**۔
+
+Source میں production AdMob unit کی ترتیب بھی موجود ہے، مگر live ads کی ذمہ دارانہ public distribution کے لیے ایک **مستقل release signing key** سے non-debug APK بنانا، AdMob ایپ/اکاؤنٹ کی approval مکمل کرنا اور اصل فون پر ads کے load ہونے کی تصدیق کرنا ضروری ہے۔ Google اشتہارات ہمیشہ دکھائی دینے کی ضمانت نہیں دیتا۔ ہر APK کا GitHub Release پر آنا خود بخود AdMob monetization فعال نہیں کرتا۔
+
+## سیکیورٹی نوٹ
+
+یہ public repository ہے۔ Firebase service-account JSON، Supabase service-role key، APK signing keystore یا پاس ورڈ کبھی repository میں commit نہ کریں۔ GitHub Actions کی debug APK کو production Play Store release تصور نہ کریں۔
+
+**Developer repository:** https://github.com/darkaw-123/Dark-chat
