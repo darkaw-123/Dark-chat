@@ -1,4 +1,4 @@
-name: Build DARK CHAT V9.10 APK with FCM and AdMob
+name: Build DARK CHAT V9.11 APK with FCM and AdMob
 on:
   workflow_dispatch:
   push:
@@ -38,11 +38,11 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           s=Path('app/src/main/assets/index.html').read_text()
-          for v in ['DCChatReceiveDeepLink','darkchat-fcm-token','darkchat-open-call','darkchat-send-push','prepareOutgoing(call)','iceCandidatePoolSize:2','call.icePromise=iceServers()']:
+          for v in ['DCChatReceiveDeepLink','darkchat-fcm-token','darkchat-open-call','darkchat-send-push','prepareOutgoing(call)','iceCandidatePoolSize:2','call.icePromise=iceServers()','Obsidian Glow UI','dc-profile-hero','dc-auth-kicker']:
               assert v in s, f'Missing V9 feature {v}'
           assert "ringHtml('Connecting…'" not in s
           assert "callState('Connecting…')" not in s
-          print('Validated V9.10 HTML',len(s),'characters')
+          print('Validated V9.11 HTML',len(s),'characters')
           PY
       - name: Validate inline JavaScript parsing and guest purchase links
         shell: bash
@@ -71,11 +71,11 @@ jobs:
       - name: Export HTML source
         run: |
           mkdir -p dist
-          cp app/src/main/assets/index.html dist/Dark_Chat_V9_10.html
+          cp app/src/main/assets/index.html dist/Dark_Chat_V9_11.html
       - name: Upload V9 HTML source
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_10_HTML_Source
+          name: DARK_CHAT_V9_11_HTML_Source
           path: dist/
       - name: Install Dark Chat custom purple D launcher icon
         shell: bash
@@ -90,24 +90,24 @@ jobs:
         run: |
           grep -F 'android:label="Dark Chat"' app/src/main/AndroidManifest.xml
           grep -F 'WindowManager.LayoutParams.FLAG_SECURE' app/src/main/java/com/darkchat/app/MainActivity.java
-      - name: Build V9.10 APK and Android App Bundles
+      - name: Build V9.11 APK and Android App Bundles
         run: gradle :app:assembleDebug :app:bundleDebug :app:bundleRelease --no-daemon --stacktrace
       - name: Upload debug AAB (testing only)
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_10_DEBUG_AAB
+          name: DARK_CHAT_V9_11_DEBUG_AAB
           path: app/build/outputs/bundle/debug/app-debug.aab
           if-no-files-found: error
       - name: Upload unsigned release AAB (requires release signing before Play upload)
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_10_UNSIGNED_RELEASE_AAB
+          name: DARK_CHAT_V9_11_UNSIGNED_RELEASE_AAB
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_10_STORE_FOR_ALL_GUEST_CHECKOUT_APK
+          name: DARK_CHAT_V9_11_STORE_FOR_ALL_GUEST_CHECKOUT_APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Publish V9 APK to GitHub Release
@@ -116,23 +116,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Dark-Chat-v9.10.apk
-          if gh release view v9.10 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload v9.10 Dark-Chat-v9.10.apk --clobber --repo "$GITHUB_REPOSITORY"
+          cp app/build/outputs/apk/debug/app-debug.apk Dark-Chat-v9.11.apk
+          if gh release view v9.11 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v9.11 Dark-Chat-v9.11.apk --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create v9.10 Dark-Chat-v9.10.apk \
+            gh release create v9.11 Dark-Chat-v9.11.apk \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "DARK CHAT V9.10 — Faster Voice & Video Call Connections" \
-              --notes "Dark Chat V9.10: caller pre-warms WebRTC ICE and SDP while ringing, recipient prefetches TURN credentials, accepted-call UI opens immediately, call timer starts only after real connection. Preserves camera flip, profile photos, chats, groups, store, Firebase notifications and AdMob. Android 8.0+."
+              --title "DARK CHAT V9.11 — Obsidian Glow Premium UI" \
+              --notes "Dark Chat V9.11: visual refresh with polished login/sign-up, dark violet gradient UI, updated chats, profile, marketplace, incoming call controls and consistent Android bottom navigation. Preserves fast call setup, camera flip, group invites, existing store and checkout, Firebase notifications and AdMob. Android 8.0+."
           fi
 
-      - name: Publish V9.10 unsigned AAB as a release download
+      - name: Publish V9.11 unsigned AAB as a release download
         continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test -s app/build/outputs/bundle/release/app-release.aab
-          cp app/build/outputs/bundle/release/app-release.aab Dark-Chat-v9.10-unsigned.aab
-          gh release upload v9.10 Dark-Chat-v9.10-unsigned.aab --clobber --repo "$GITHUB_REPOSITORY"
+          cp app/build/outputs/bundle/release/app-release.aab Dark-Chat-v9.11-unsigned.aab
+          gh release upload v9.11 Dark-Chat-v9.11-unsigned.aab --clobber --repo "$GITHUB_REPOSITORY"
