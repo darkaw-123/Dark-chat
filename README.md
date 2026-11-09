@@ -1,4 +1,6 @@
-# DARK CHAT — V9.13 Production Setup + V9.12 Public Test Release
+# DARK CHAT — V9.13.1 Notification Fix + V9.12 Public Test Release
+
+**V9.13.1 notification checks:** Android 13+ runtime permission and disabled channels are detected. Profile offers **Open Android notification settings**; logging out removes the previous account's FCM token to prevent cross-account registration conflicts. [Production workflow](.github/workflows/build-production-apk.yml). The V9.13.1 production APK is signed privately and has not been uploaded to a public GitHub Release; do not mistake any debug artifact for a production APK.
 
 > **V9.13 signed production APK — real AdMob configuration:** The source and secure automated release workflow are ready. The public GitHub v9.12 link remains a DEBUG/test-ads APK. To publish V9.13 to GitHub, store a stable private signing keystore and the required passwords as GitHub Actions repository secrets, then run the production workflow. [اردو ہدایات](docs/PRODUCTION_ADMOB_URDU.md) · [Production workflow](.github/workflows/build-production-apk.yml). **Do not upload signing keys or passwords to this public repository.** Ad serving requires AdMob's Ready approval and supported-store listing.
 
