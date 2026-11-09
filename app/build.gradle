@@ -2,6 +2,16 @@ plugins {
     id 'com.android.application'
     id 'com.google.gms.google-services'
 }
+// A production build must use a stable private signing key.
+// Android signing secrets are injected by the GitHub Actions production workflow,
+// never committed to this public source repository.
+def dcReleaseKeystore = System.getenv('DARKCHAT_RELEASE_KEYSTORE_FILE')
+def dcReleaseStorePassword = System.getenv('DARKCHAT_RELEASE_STORE_PASSWORD')
+def dcReleaseKeyAlias = System.getenv('DARKCHAT_RELEASE_KEY_ALIAS')
+def dcReleaseKeyPassword = System.getenv('DARKCHAT_RELEASE_KEY_PASSWORD')
+def dcReleaseSigningReady = [dcReleaseKeystore, dcReleaseStorePassword, dcReleaseKeyAlias, dcReleaseKeyPassword]
+        .every { it != null && !it.trim().isEmpty() }
+
 android {
     namespace 'com.darkchat.app'
     compileSdk 35
@@ -9,8 +19,31 @@ android {
         applicationId 'com.darkchat.app'
         minSdk 26
         targetSdk 35
-        versionCode 21
-        versionName '9.12'
+        versionCode 22
+        versionName '9.13'
+    }
+    signingConfigs {
+        production {
+            if (dcReleaseSigningReady) {
+                storeFile file(dcReleaseKeystore)
+                storePassword dcReleaseStorePassword
+                keyAlias dcReleaseKeyAlias
+                keyPassword dcReleaseKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            // The existing debug APK uses Google's demo ads for safe testing.
+            debuggable true
+        }
+        release {
+            debuggable false
+            minifyEnabled false
+            if (dcReleaseSigningReady) {
+                signingConfig signingConfigs.production
+            }
+        }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
