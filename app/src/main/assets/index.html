@@ -662,7 +662,11 @@ dcReadInvitedSeller();
 function toast(m,e){const d=document.createElement('div');if(e)d.className='e';d.textContent=m;$('#toast').appendChild(d);setTimeout(()=>d.remove(),4200)}
 const nget=()=>{try{return localStorage.getItem('dc_notif_'+(me?.id||'guest'))!=='off'}catch(_){return true}};
 const nset=v=>{try{localStorage.setItem('dc_notif_'+(me?.id||'guest'),v?'on':'off')}catch(_){}};
-function nlabel(){const pm='Notification' in window?Notification.permission:'unsupported';return nget()?'Notifications: On'+(pm==='denied'?' (blocked in browser settings)':pm==='default'?' — tap to allow alerts':''):'Notifications: Off'}
+function nlabel(){
+ if(window.DarkChatDevice)return 'In-app alerts: '+(nget()?'On':'Off')+' (Android push controlled in phone settings)';
+ const pm='Notification' in window?Notification.permission:'unsupported';
+ return nget()?'Notifications: On'+(pm==='denied'?' (blocked in browser settings)':pm==='default'?' — tap to allow alerts':''):'Notifications: Off';
+}
 const URLRE=/https?:\/\/[^\s<]*[^\s<.,;:!?)"'\]]/g;
 function fmt(b){const s=String(b??'');let out='',i=0,first=null;for(const m of s.matchAll(URLRE)){out+=esc(s.slice(i,m.index));const raw=m[0];let ok=null;try{const u=new URL(raw);if(/^https?:$/.test(u.protocol))ok=u}catch(_){}
  if(ok){out+='<a href="'+esc(ok.href)+'" target="_blank" rel="noopener noreferrer nofollow">'+esc(raw)+'</a>';first=first||ok}else out+=esc(raw);i=m.index+raw.length}
@@ -1106,7 +1110,9 @@ function render(){
   '<div style="padding:0 18px 24px"><label for="dn">Name</label><input id="dn" maxlength="32" value="'+esc(prof.display_name||prof.username)+'"><label for="ab2">About</label><textarea id="ab2" rows="3" maxlength="200">'+esc(prof.about||'')+'</textarea><button class="btn" data-a="save" style="width:100%;margin-top:14px">Save profile</button>'+
   '<h4 style="margin:26px 0 0">Change password</h4><label for="pw1">New password</label><input id="pw1" type="password" autocomplete="new-password" maxlength="72"><label for="pw2">Repeat new password</label><input id="pw2" type="password" autocomplete="new-password" maxlength="72"><button class="btn g" data-a="pw" style="width:100%;margin-top:12px">Update password</button>'+
   dcProfileSellerLink()+
-  '<h4 style="margin:26px 0 8px">Notifications</h4><button class="btn g" data-a="notif" style="width:100%">'+esc(nlabel())+'</button><div id="nativePushStatus" class="note" style="margin:12px 0">'+esc(window.DarkChat?.statusText||'Checking Android FCM...')+'</div><button class="btn g" data-a="pushcheck" style="width:100%">Check / Retry Android Push</button><button class="btn g" data-a="out" style="width:100%;margin-top:22px">Log out</button></div>';
+  '<h4 style="margin:26px 0 8px">Notifications</h4><button class="btn g" data-a="notif" style="width:100%">'+esc(nlabel())+'</button><div id="nativePushStatus" class="note" style="margin:12px 0">'+esc(window.DarkChat?.statusText||'Checking Android FCM...')+'</div><button class="btn g" data-a="pushcheck" style="width:100%">Check / Retry Android Push</button>'+
+  (window.DarkChatDevice?'<button class="btn g" data-a="pushsettings" style="width:100%;margin-top:10px">Open Android notification settings</button>':'')+
+  '<button class="btn g" data-a="out" style="width:100%;margin-top:22px">Log out</button></div>';
  }
 }
 // When a buyer opens a product from a chat keyword, show the marketplace
@@ -1739,10 +1745,27 @@ const A={
  dcall:()=>{if(call){reliableCallEnd(call.cid,'decline');endCall('missed',false)}},
  xcall:()=>endCall('',true),
  flipcam:()=>flipCallCamera(),
- out:async()=>{teardown();await sb.auth.signOut()},
+ out:async()=>{
+  // Disconnect this phone's FCM token from the current account before switching users.
+  // Without this, upsert(fcm_token) can conflict with another account under RLS.
+  const oldUser=me?.id,token=window.DarkChat?._t;
+  if(oldUser&&token){
+   try{const {error}=await sb.from('device_push_tokens').delete().eq('user_id',oldUser).eq('fcm_token',token);if(error)console.warn('FCM token logout cleanup:',error.message)}
+   catch(error){console.warn('FCM logout cleanup failed:',error)}
+  }
+  if(window.DarkChat)window.DarkChat._registeredUser=null;
+  teardown();await sb.auth.signOut();
+ },
  save:a=>guarded(a,async()=>{const n=$('#dn').value.trim(),ab=$('#ab2').value.trim().slice(0,200);if(n.length<2||n.length>32)throw new Error('Name must be 2–32 characters.');const {error}=await sb.from('profiles').update({display_name:n,about:ab,updated_at:new Date().toISOString()}).eq('id',me.id);if(error)throw error;prof.display_name=n;prof.about=ab;names[me.id].display_name=n;toast('Profile saved.')}),
  pw:a=>guarded(a,async()=>{const a1=$('#pw1').value,a2=$('#pw2').value;if(a1.length<6)throw new Error('Password must be at least 6 characters.');if(a1!==a2)throw new Error('Passwords do not match.');const {error}=await sb.auth.updateUser({password:a1});if(error)throw error;$('#pw1').value='';$('#pw2').value='';toast('Password updated.')}),
- notif:async()=>{const pm='Notification' in window?Notification.permission:'unsupported';if(nget()&&pm==='default'){try{await Notification.requestPermission()}catch(_){}}else{nset(!nget());if(nget()&&'Notification' in window&&Notification.permission==='default'){try{await Notification.requestPermission()}catch(_){}}}render()},
+ notif:async()=>{
+   if(window.DarkChatDevice){nset(!nget());return render()}
+   const pm='Notification' in window?Notification.permission:'unsupported';
+   if(nget()&&pm==='default'){try{await Notification.requestPermission()}catch(_){}}
+   else{nset(!nget());if(nget()&&'Notification' in window&&Notification.permission==='default'){try{await Notification.requestPermission()}catch(_){}}}
+   render();
+ },
+ pushsettings:()=>{if(window.DarkChatDevice?.openNotificationSettings)window.DarkChatDevice.openNotificationSettings();else toast('Open your Android Settings → Apps → Dark Chat → Notifications.',1)},
  attach:()=>$('#atf')&&$('#atf').click(),
  imgv:a=>modal('<div style="text-align:center"><img alt="" src="'+esc(a.dataset.u)+'" style="max-width:100%;max-height:70dvh;border-radius:14px"><a class="btn g" style="display:block;margin-top:12px;text-decoration:none;text-align:center" href="'+esc(a.dataset.u)+'" target="_blank" rel="noopener">Open full size</a><button class="btn g" data-a="close" style="width:100%;margin-top:10px">Close</button></div>'),
  sttadd:()=>inputModal('Add status','<label for="sf">Photo or video</label><input id="sf" type="file" accept="image/*,video/mp4,video/webm,video/quicktime"><label for="sc">Caption (optional)</label><input id="sc" maxlength="200">','Post status','sttpost'),
@@ -1820,7 +1843,7 @@ function setAndroidPushStatus(message){
  const target=$('#nativePushStatus');if(target)target.textContent=window.DarkChat.statusText;
 }
 window.DarkChat={
- _t:null,_busy:false,_retryTimer:null,_registeredUser:null,statusText:'Waiting for Android FCM token...',
+ _t:null,_busy:false,_retryTimer:null,_registeredUser:null,_permissionBlocked:false,statusText:'Waiting for Android FCM token...',
  registerPushToken:async function(t){
   if(!t)return false;
   this._t=t;
@@ -1837,7 +1860,7 @@ window.DarkChat={
    if(error)throw error;
    if(!data||data.user_id!==me.id)throw new Error('Token registration not confirmed');
    this._registeredUser=me.id;
-   setAndroidPushStatus('FCM registered for this account. Check Android notification permission.');
+   setAndroidPushStatus(this._permissionBlocked?'FCM registered, but Android notifications are disabled. Open notification settings.':'FCM registered for this account. Android notifications are allowed if enabled in Settings.');
    return true;
   }catch(error){
    console.warn('DARK CHAT FCM token registration failed:',error?.message||error);
@@ -1864,7 +1887,14 @@ window.addEventListener('darkchat-native-push-status',e=>{
  const d=e.detail||{},msg=String(d.message||'');
  if(d.status==='missing_play_services')setAndroidPushStatus('FCM unavailable: Google Play services missing on this device.');
  else if(d.status==='token_error')setAndroidPushStatus('FCM token error: '+msg);
- else if(d.status==='notification_blocked')setAndroidPushStatus('FCM token may be ready, but Android notifications are blocked. Enable permission.');
+ else if(d.status==='notification_blocked'){
+   window.DarkChat._permissionBlocked=true;
+   setAndroidPushStatus('Android notifications blocked: '+(msg||'Open app notification settings.'));
+ }
+ else if(d.status==='notification_enabled'){
+   window.DarkChat._permissionBlocked=false;
+   setAndroidPushStatus(window.DarkChat._registeredUser===me?.id?'FCM registered. Android notifications allowed.':'Android notifications allowed. Checking Firebase registration…');
+ }
  else if(d.status==='checking'&&!window.DarkChat._t)setAndroidPushStatus('Checking Firebase and Google Play services...');
 });
 document.addEventListener('click',e=>{
