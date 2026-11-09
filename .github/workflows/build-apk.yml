@@ -1,4 +1,4 @@
-name: Build DARK CHAT V9.11 APK with FCM and AdMob
+name: Build DARK CHAT V9.12 APK with FCM and AdMob
 on:
   workflow_dispatch:
   push:
@@ -38,11 +38,13 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           s=Path('app/src/main/assets/index.html').read_text()
-          for v in ['DCChatReceiveDeepLink','darkchat-fcm-token','darkchat-open-call','darkchat-send-push','prepareOutgoing(call)','iceCandidatePoolSize:2','call.icePromise=iceServers()','Obsidian Glow UI','dc-profile-hero','dc-auth-kicker']:
+          for v in ['DCChatReceiveDeepLink','darkchat-fcm-token','darkchat-open-call','darkchat-send-push','prepareOutgoing(call)','iceCandidatePoolSize:2','editAvatarCrop(file)','dc_hidden_chats','DC_DEFAULT_AVATAR','restoreHiddenChat','removefriend','dc-avatar-viewer','dc-crop-overlay']:
               assert v in s, f'Missing V9 feature {v}'
           assert "ringHtml('Connecting…'" not in s
           assert "callState('Connecting…')" not in s
-          print('Validated V9.11 HTML',len(s),'characters')
+          assert '__DC_DEFAULT_AVATAR_BASE64__' not in s, 'Default avatar was not embedded'
+          assert 'Obsidian Glow UI' not in s, 'V9.11 redesign must not be used'
+          print('Validated V9.12 HTML',len(s),'characters')
           PY
       - name: Validate inline JavaScript parsing and guest purchase links
         shell: bash
@@ -71,11 +73,11 @@ jobs:
       - name: Export HTML source
         run: |
           mkdir -p dist
-          cp app/src/main/assets/index.html dist/Dark_Chat_V9_11.html
+          cp app/src/main/assets/index.html dist/Dark_Chat_V9_12.html
       - name: Upload V9 HTML source
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_11_HTML_Source
+          name: DARK_CHAT_V9_12_HTML_Source
           path: dist/
       - name: Install Dark Chat custom purple D launcher icon
         shell: bash
@@ -90,24 +92,24 @@ jobs:
         run: |
           grep -F 'android:label="Dark Chat"' app/src/main/AndroidManifest.xml
           grep -F 'WindowManager.LayoutParams.FLAG_SECURE' app/src/main/java/com/darkchat/app/MainActivity.java
-      - name: Build V9.11 APK and Android App Bundles
+      - name: Build V9.12 APK and Android App Bundles
         run: gradle :app:assembleDebug :app:bundleDebug :app:bundleRelease --no-daemon --stacktrace
       - name: Upload debug AAB (testing only)
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_11_DEBUG_AAB
+          name: DARK_CHAT_V9_12_DEBUG_AAB
           path: app/build/outputs/bundle/debug/app-debug.aab
           if-no-files-found: error
       - name: Upload unsigned release AAB (requires release signing before Play upload)
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_11_UNSIGNED_RELEASE_AAB
+          name: DARK_CHAT_V9_12_UNSIGNED_RELEASE_AAB
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_11_STORE_FOR_ALL_GUEST_CHECKOUT_APK
+          name: DARK_CHAT_V9_12_STORE_FOR_ALL_GUEST_CHECKOUT_APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Publish V9 APK to GitHub Release
@@ -116,33 +118,33 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Dark-Chat-v9.11.apk
-          if gh release view v9.11 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload v9.11 Dark-Chat-v9.11.apk --clobber --repo "$GITHUB_REPOSITORY"
+          cp app/build/outputs/apk/debug/app-debug.apk Dark-Chat-v9.12.apk
+          if gh release view v9.12 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v9.12 Dark-Chat-v9.12.apk --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create v9.11 Dark-Chat-v9.11.apk \
+            gh release create v9.12 Dark-Chat-v9.12.apk \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "DARK CHAT V9.11 — Obsidian Glow Premium UI" \
-              --notes "Dark Chat V9.11: visual refresh with polished login/sign-up, dark violet gradient UI, updated chats, profile, marketplace, incoming call controls and consistent Android bottom navigation. Preserves fast call setup, camera flip, group invites, existing store and checkout, Firebase notifications and AdMob. Android 8.0+."
+              --title "DARK CHAT V9.12 — V9.10 Design, Croppable Profile Photos & Removable Chats" \
+              --notes "Dark Chat V9.12 restores the preferred V9.10 design and adds interactive round profile-picture cropping with drag and zoom, supplied newspaper silhouette as default profile picture, tap-to-enlarge friend's DP and private per-user remove/restore contact chat list. Hidden chats reappear on new incoming messages or saved-name search. Preserves calls, camera flipping, groups, marketplace, notifications and AdMob. Android 8.0+."
           fi
 
-      - name: Publish V9.11 unsigned AAB as a release download
+      - name: Publish V9.12 unsigned AAB as a release download
         continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test -s app/build/outputs/bundle/release/app-release.aab
-          cp app/build/outputs/bundle/release/app-release.aab Dark-Chat-v9.11-unsigned.aab
-          gh release upload v9.11 Dark-Chat-v9.11-unsigned.aab --clobber --repo "$GITHUB_REPOSITORY"
+          cp app/build/outputs/bundle/release/app-release.aab Dark-Chat-v9.12-unsigned.aab
+          gh release upload v9.12 Dark-Chat-v9.12-unsigned.aab --clobber --repo "$GITHUB_REPOSITORY"
 
-      - name: Attach standalone V9.11 HTML to GitHub Release
+      - name: Attach standalone V9.12 HTML to GitHub Release
         continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          test -s dist/Dark_Chat_V9_11.html
-          cp dist/Dark_Chat_V9_11.html DarkChat_V9_11_index.html
-          gh release upload v9.11 DarkChat_V9_11_index.html --clobber --repo "$GITHUB_REPOSITORY"
+          test -s dist/Dark_Chat_V9_12.html
+          cp dist/Dark_Chat_V9_12.html DarkChat_V9_12_index.html
+          gh release upload v9.12 DarkChat_V9_12_index.html --clobber --repo "$GITHUB_REPOSITORY"
