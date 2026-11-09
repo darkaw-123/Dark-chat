@@ -1,0 +1,99 @@
+name: DARK CHAT V9.13 — Signed Production APK (Real AdMob)
+on:
+  workflow_dispatch:
+jobs:
+  signed-production:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 30
+    env:
+      DC_RELEASE_KEYSTORE_B64: ${{ secrets.DARKCHAT_RELEASE_KEYSTORE_B64 }}
+      DARKCHAT_RELEASE_STORE_PASSWORD: ${{ secrets.DARKCHAT_RELEASE_STORE_PASSWORD }}
+      DARKCHAT_RELEASE_KEY_ALIAS: ${{ secrets.DARKCHAT_RELEASE_KEY_ALIAS }}
+      DARKCHAT_RELEASE_KEY_PASSWORD: ${{ secrets.DARKCHAT_RELEASE_KEY_PASSWORD }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Configure Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Configure Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Validate signing secrets and restore private keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in DC_RELEASE_KEYSTORE_B64 DARKCHAT_RELEASE_STORE_PASSWORD DARKCHAT_RELEASE_KEY_ALIAS DARKCHAT_RELEASE_KEY_PASSWORD; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error title=Production signing key missing::Configure the four DARKCHAT_RELEASE_* repository Actions secrets (see docs/PRODUCTION_ADMOB_URDU.md)."
+              exit 1
+            fi
+          done
+          umask 077
+          printf '%s' "$DC_RELEASE_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/darkchat-release.jks"
+          test -s "$RUNNER_TEMP/darkchat-release.jks"
+          echo "DARKCHAT_RELEASE_KEYSTORE_FILE=$RUNNER_TEMP/darkchat-release.jks" >> "$GITHUB_ENV"
+          keytool -list -keystore "$RUNNER_TEMP/darkchat-release.jks" -storepass "$DARKCHAT_RELEASE_STORE_PASSWORD" -alias "$DARKCHAT_RELEASE_KEY_ALIAS" >/dev/null
+          echo "Production release key loaded securely."
+      - name: Confirm real AdMob configuration and original UI
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          gradle=Path('app/build.gradle').read_text()
+          java=Path('app/src/main/java/com/darkchat/app/MainActivity.java').read_text()
+          manifest=Path('app/src/main/AndroidManifest.xml').read_text()
+          html=Path('app/src/main/assets/index.html').read_text()
+          assert "versionName '9.13'" in gradle and "versionCode 22" in gradle
+          assert 'debuggable false' in gradle
+          assert "ca-app-pub-7138311889196067/3355094444" in java, 'Live banner ID missing'
+          assert "ca-app-pub-7138311889196067~7564520939" in manifest, 'Live AdMob application ID missing'
+          assert 'FLAG_DEBUGGABLE' in java, 'Debug versus live ad unit safeguard missing'
+          assert 'editAvatarCrop(file)' in html and 'dc_hidden_chats' in html
+          assert 'Obsidian Glow UI' not in html, 'V9.10 design must remain'
+          print('Production AdMob, signing and existing app features verified')
+          PY
+      - name: Decode the existing launcher icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/res/drawable-nodpi
+          base64 --decode app/src/main/assets/dark_chat_logo_new.webp.b64 > app/src/main/res/drawable-nodpi/dark_chat_logo.webp
+          test -s app/src/main/res/drawable-nodpi/dark_chat_logo.webp
+      - name: Build signed non-debug production APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:assembleRelease --no-daemon --stacktrace
+          test -s app/build/outputs/apk/release/app-release.apk
+          apksigner="$(find "$ANDROID_HOME/build-tools" -mindepth 2 -maxdepth 2 -name apksigner | sort -V | tail -n 1)"
+          test -n "$apksigner"
+          "$apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          unzip -p app/build/outputs/apk/release/app-release.apk classes.dex | strings | grep -Fq 'ca-app-pub-7138311889196067/3355094444'
+          cp app/build/outputs/apk/release/app-release.apk Dark-Chat-v9.13-Production.apk
+      - name: Upload signed production APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DARK_CHAT_V9_13_PRODUCTION_LIVE_ADMOB_APK
+          path: Dark-Chat-v9.13-Production.apk
+          if-no-files-found: error
+      - name: Publish signed production APK on public GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v9.13 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v9.13 Dark-Chat-v9.13-Production.apk --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create v9.13 Dark-Chat-v9.13-Production.apk \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "DARK CHAT V9.13 — Signed Android Production APK" \
+              --notes "Production-signed, non-debug Dark Chat V9.13 uses the account's real AdMob banner unit. Actual fill/revenue require a Ready app in AdMob and eligibility/approval. Do not click your own ads. Preserves V9.10 UI, chat, store, camera flip, photo crop, notifications."
+          fi
