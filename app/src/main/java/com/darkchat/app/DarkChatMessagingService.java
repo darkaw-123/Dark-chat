@@ -41,7 +41,7 @@ public final class DarkChatMessagingService extends FirebaseMessagingService {
             new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build());
         channel.enableVibration(true);
         channel.setVibrationPattern(new long[]{0, 600, 250, 600, 250, 600});
-        channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+        channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
         manager.createNotificationChannel(channel);
     }
 
@@ -95,7 +95,7 @@ public final class DarkChatMessagingService extends FirebaseMessagingService {
             .setColor(0xFFA629FF)
             .setColorized(false)
             .setCategory(Notification.CATEGORY_CALL)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setPriority(Notification.PRIORITY_MAX)
             .setAutoCancel(true)
             .setOngoing(false)
@@ -119,6 +119,7 @@ public final class DarkChatMessagingService extends FirebaseMessagingService {
             .setSmallIcon(R.drawable.ic_stat_dark_chat)
             .setLargeIcon(BitmapFactory.decodeResource(getResources(),R.drawable.dark_chat_logo))
             .setCategory(Notification.CATEGORY_MESSAGE)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setAutoCancel(true)
             .setContentIntent(open)
             .build();
