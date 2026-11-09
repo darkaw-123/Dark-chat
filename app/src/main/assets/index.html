@@ -779,16 +779,103 @@ let mode='login',busy=false,signupPhoto=null,signupPhotoPreview=null;
 function setMode(m){mode=m;const s=m==='signup';$('#asub').textContent=s?'Choose a username and password.':'Log in to your account.';$('#ab').textContent=s?'Create account':'Log in';$('#at').textContent=s?'I already have an account':'Create a new account';$('#p').autocomplete=s?'new-password':'current-password';$('#dc-signup-photo-row').hidden=!s;$('#ae').textContent=''}
 $('#at').onclick=()=>setMode(mode==='login'?'signup':'login');
 
-$('#dc-signup-photo').addEventListener('change',e=>{
- const f=e.target.files?.[0],preview=$('#dc-signup-avatar-preview');
- if(signupPhotoPreview)URL.revokeObjectURL(signupPhotoPreview);
- signupPhotoPreview=null;signupPhoto=null;preview.style.backgroundImage='';preview.textContent='+';
+
+/* Circle avatar framing editor shared by signup and profile updates. */
+async function editAvatarCrop(file){
+ if(!file)return null;
+ if(file.size>5*1048576||!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type))
+   throw new Error('Choose JPG, PNG, WEBP or GIF under 5 MB.');
+ const url=URL.createObjectURL(file);
+ const img=new Image();
+ try{
+  await new Promise((resolve,reject)=>{
+   img.onload=()=>resolve();img.onerror=()=>reject(new Error('This picture could not be opened.'));
+   img.src=url;
+  });
+  if(!img.naturalWidth||!img.naturalHeight)throw Error('Invalid image dimensions.');
+  return await new Promise(resolve=>{
+   const root=document.createElement('div');
+   root.className='dc-crop-overlay';
+   root.setAttribute('role','dialog');
+   root.setAttribute('aria-modal','true');
+   root.setAttribute('aria-label','Adjust profile photo');
+   root.innerHTML='<div class="dc-crop-dialog"><h2>Adjust profile photo</h2><p>Choose the part you want inside your round DP.</p>'+
+    '<div class="dc-crop-frame"><canvas width="360" height="360" aria-label="Profile photo crop preview"></canvas></div>'+
+    '<label class="dc-crop-zoom" for="dc-photo-zoom"><span>Zoom</span><input id="dc-photo-zoom" type="range" min="1" max="3.5" step=".01" value="1"><span id="dc-photo-zoom-label">1.0×</span></label>'+
+    '<div class="dc-crop-actions"><button class="btn g" type="button" data-crop="cancel">Cancel</button><button class="btn" type="button" data-crop="save">Use photo</button></div>'+
+    '<small class="dc-crop-info">Move the photo with your finger. Zoom in or out, then save your selection.</small></div>';
+   document.body.appendChild(root);
+   const frame=root.querySelector('.dc-crop-frame'), canvas=root.querySelector('canvas'), ctx=canvas.getContext('2d',{alpha:false});
+   const zoomInput=root.querySelector('#dc-photo-zoom'), saveButton=root.querySelector('[data-crop="save"]');
+   let zoom=1,dx=0,dy=0,drag=null,done=false;
+   const S=360,base=Math.max(S/img.naturalWidth,S/img.naturalHeight);
+   function rectangle(){
+    const w=img.naturalWidth*base*zoom,h=img.naturalHeight*base*zoom;
+    const limitX=Math.max(0,(w-S)/2),limitY=Math.max(0,(h-S)/2);
+    dx=Math.max(-limitX,Math.min(limitX,dx));dy=Math.max(-limitY,Math.min(limitY,dy));
+    return {x:(S-w)/2+dx,y:(S-h)/2+dy,w,h};
+   }
+   function draw(){
+    const r=rectangle();
+    ctx.fillStyle='#0e0b19';ctx.fillRect(0,0,S,S);
+    ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+    ctx.drawImage(img,r.x,r.y,r.w,r.h);
+   }
+   function finish(result){
+    if(done)return;
+    done=true;root.remove();document.removeEventListener('keydown',escKey);
+    resolve(result);
+   }
+   function escKey(e){if(e.key==='Escape')finish(null)}
+   document.addEventListener('keydown',escKey);
+   zoomInput.addEventListener('input',()=>{
+    zoom=Number(zoomInput.value)||1;
+    root.querySelector('#dc-photo-zoom-label').textContent=zoom.toFixed(1)+'×';draw();
+   });
+   frame.addEventListener('pointerdown',e=>{
+    if(e.button!==0&&e.pointerType!=='touch')return;
+    drag={id:e.pointerId,x:e.clientX,y:e.clientY};
+    try{frame.setPointerCapture(e.pointerId)}catch(_){}
+   });
+   frame.addEventListener('pointermove',e=>{
+    if(!drag||drag.id!==e.pointerId)return;
+    const scale=S/frame.getBoundingClientRect().width;
+    dx+=(e.clientX-drag.x)*scale;dy+=(e.clientY-drag.y)*scale;
+    drag.x=e.clientX;drag.y=e.clientY;draw();
+   });
+   for(const type of ['pointerup','pointercancel','lostpointercapture'])
+    frame.addEventListener(type,e=>{if(drag&&drag.id===e.pointerId)drag=null});
+   root.querySelector('[data-crop="cancel"]').onclick=()=>finish(null);
+   saveButton.onclick=()=>{
+    if(done)return;saveButton.disabled=true;saveButton.textContent='Saving photo…';
+    try{
+     const exported=document.createElement('canvas');exported.width=512;exported.height=512;
+     const out=exported.getContext('2d',{alpha:false});
+     const r=rectangle(),k=512/S;out.fillStyle='#100c18';out.fillRect(0,0,512,512);
+     out.imageSmoothingEnabled=true;out.imageSmoothingQuality='high';
+     out.drawImage(img,r.x*k,r.y*k,r.w*k,r.h*k);
+     exported.toBlob(blob=>{
+      if(!blob){saveButton.disabled=false;saveButton.textContent='Use photo';toast('Could not process this image.',1);return}
+      finish(new File([blob],'darkchat-profile.jpg',{type:'image/jpeg',lastModified:Date.now()}));
+     },'image/jpeg',.91);
+    }catch(e){saveButton.disabled=false;saveButton.textContent='Use photo';toast('Photo crop failed: '+e.message,1)}
+   };
+   draw();zoomInput.focus();
+  });
+ }finally{URL.revokeObjectURL(url)}
+}
+$('#dc-signup-photo').addEventListener('change',async e=>{
+ const input=e.target,f=input.files?.[0],preview=$('#dc-signup-avatar-preview');
+ input.value='';
  if(!f)return;
- if(f.size>5*1048576||!['image/jpeg','image/png','image/webp'].includes(f.type)){
-  e.target.value='';$('#ae').textContent='Choose a JPG, PNG or WEBP photo under 5 MB';return;
- }
- signupPhoto=f;signupPhotoPreview=URL.createObjectURL(f);
- preview.style.backgroundImage='url("'+signupPhotoPreview+'")';preview.textContent='';
+ try{
+  const cropped=await editAvatarCrop(f);
+  if(!cropped)return;
+  if(signupPhotoPreview)URL.revokeObjectURL(signupPhotoPreview);
+  signupPhoto=cropped;signupPhotoPreview=URL.createObjectURL(cropped);
+  preview.style.backgroundImage='url("'+signupPhotoPreview+'")';preview.textContent='';
+  $('#ae').textContent='';
+ }catch(err){$('#ae').textContent=err.message||'Could not use this photo'}
 });
 async function saveSignupPhoto(id){
  const file=signupPhoto;if(!file)return;
@@ -1697,14 +1784,27 @@ document.addEventListener('change',e=>{
   target.style.backgroundImage='url("'+url+'")';target.textContent='';
  }
 });
+
 document.addEventListener('change',async e=>{
- if(e.target.dataset.c==='attach'){const fs=[...e.target.files],cid=cur;e.target.value='';for(const f of fs)await sendFile(cid,f);return}
- if(e.target.dataset.c!=='avatar')return;const f=e.target.files[0];if(!f)return;
- if(!/^image\//.test(f.type)||f.size>5*1048576)return toast('Choose an image under 5 MB.',1);
- const ext=(f.type.split('/')[1]||'jpg').replace('jpeg','jpg'),path=me.id+'/avatar-'+Date.now()+'.'+ext;
- try{const up=await sb.storage.from(BUCKET).upload(path,f,{contentType:f.type});if(up.error)throw up.error;
-  const {error}=await sb.from('profiles').update({avatar_path:path,updated_at:new Date().toISOString()}).eq('id',me.id);if(error)throw error;
-  prof.avatar_path=path;names[me.id].avatar_path=path;render();toast('Profile photo updated.')}catch(x){toast('Upload failed: '+x.message,1)}
+ if(e.target.dataset.c==='attach'){
+  const fs=[...e.target.files],cid=cur;e.target.value='';
+  for(const f of fs)await sendFile(cid,f);
+  return;
+ }
+ if(e.target.dataset.c!=='avatar')return;
+ const input=e.target,file=input.files?.[0];input.value='';
+ if(!file||!me)return;
+ let cropped;
+ try{cropped=await editAvatarCrop(file)}catch(err){return toast(err.message||'Unable to open photo.',1)}
+ if(!cropped)return;
+ const path=me.id+'/avatars/'+crypto.randomUUID()+'.jpg';
+ try{
+  const up=await sb.storage.from(BUCKET).upload(path,cropped,{contentType:'image/jpeg'});
+  if(up.error)throw up.error;
+  const {error}=await sb.from('profiles').update({avatar_path:path,updated_at:new Date().toISOString()}).eq('id',me.id);
+  if(error){await sb.storage.from(BUCKET).remove([path]);throw error}
+  prof.avatar_path=path;names[me.id].avatar_path=path;render();toast('Profile photo updated with your selected crop.');
+ }catch(err){toast('Photo upload failed: '+(err.message||'Unknown error'),1)}
 });
 
 /* ---------- viewport, errors, push bridge, PWA ---------- */
