@@ -32,6 +32,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebSettings;
 import androidx.webkit.WebViewAssetLoader;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.android.gms.common.ConnectionResult;
@@ -141,6 +142,10 @@ public final class MainActivity extends Activity {
         webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
         webView.getSettings().setAllowFileAccess(false);
         webView.getSettings().setAllowContentAccess(false);
+        webView.getSettings().setGeolocationEnabled(false);
+        webView.getSettings().setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        webView.getSettings().setJavaScriptCanOpenWindowsAutomatically(false);
+        if (Build.VERSION.SDK_INT >= 26) webView.getSettings().setSafeBrowsingEnabled(true);
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface public void refreshToken() { runOnUiThread(() -> checkFirebaseToken()); }
             @JavascriptInterface public void requestPermission() { runOnUiThread(() -> requestPushPermission()); }
@@ -150,6 +155,16 @@ public final class MainActivity extends Activity {
             .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
             .build();
         webView.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (!request.isForMainFrame()) return false;
+                Uri uri=request.getUrl();
+                if ("https".equalsIgnoreCase(uri.getScheme()) && "appassets.androidplatform.net".equalsIgnoreCase(uri.getHost())) return false;
+                String scheme=uri.getScheme();
+                if ("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme)) {
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)); } catch (Exception ignored) { }
+                }
+                return true; // Keep external sites away from the JavaScript bridge.
+            }
             @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest request) {
                 return loader.shouldInterceptRequest(request.getUrl());
             }
@@ -324,6 +339,7 @@ public final class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel("default", "DARK CHAT Messages and Calls", NotificationManager.IMPORTANCE_HIGH);
             channel.enableVibration(true);
+            channel.setLockscreenVisibility(android.app.Notification.VISIBILITY_PRIVATE);
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
             DarkChatMessagingService.createCallChannel(this);
         }
