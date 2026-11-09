@@ -1,4 +1,7 @@
-# DARK CHAT — V9.12 (Android)
+# DARK CHAT — V9.13 Production Setup + V9.12 Public Test Release
+
+> **V9.13 signed production APK — real AdMob configuration:** The source and secure automated release workflow are ready. The public GitHub v9.12 link remains a DEBUG/test-ads APK. To publish V9.13 to GitHub, store a stable private signing keystore and the required passwords as GitHub Actions repository secrets, then run the production workflow. [اردو ہدایات](docs/PRODUCTION_ADMOB_URDU.md) · [Production workflow](.github/workflows/build-production-apk.yml). **Do not upload signing keys or passwords to this public repository.** Ad serving requires AdMob's Ready approval and supported-store listing.
+
 
 **Latest public Android APK:** [Download Dark Chat V9.12](https://github.com/darkaw-123/Dark-chat/releases/download/v9.12/Dark-Chat-v9.12.apk)
 
