@@ -728,6 +728,7 @@ async function hideDirectContact(cid){
  const {data,error}=await sb.from('dc_hidden_chats').insert({owner_id:me.id,conversation_id:cid}).select('hidden_at').single();
  if(error){toast('Could not remove contact: '+error.message,1);return}
  hiddenChats.set(cid,data.hidden_at);
+ unread[cid]=0;
  if(call?.cid===cid)endCall('',true);
  if(cur===cid){cur=null;$('#chat').classList.remove('open');$('#chat').innerHTML='<div class="empty" style="margin:auto"><b>Select a chat</b>Your messages appear here.</div>'}
  closeM();tab='chats';render();
@@ -1085,7 +1086,7 @@ function render(){
  TABS.forEach(t=>$('#n-'+t[0]).classList.toggle('on',tab===t[0]));
  $('#ttl').textContent={chats:'DARK CHAT',groups:'Groups',news:'Announcements',store:'Store',calls:'Calls',me:'Profile'}[tab];
  $('#addBtn').hidden=!(tab==='chats'||tab==='groups'||tab==='news'&&false);
- const l=$('#list'),n=(k)=>convs.filter(c=>c.kind===k).reduce((a,c)=>a+(unread[c.id]||0),0);
+ const l=$('#list'),n=(k)=>convs.filter(c=>c.kind===k&&(k!=='direct'||!hiddenChats.has(c.id))).reduce((a,c)=>a+(unread[c.id]||0),0);
  TABS.forEach(t=>{const b=$('#n-'+t[0]);const old=b.querySelector('.dot');if(old)old.remove();const c=t[0]==='chats'?n('direct'):t[0]==='groups'?n('group'):0;if(c)b.insertAdjacentHTML('beforeend','<span class="dot">'+c+'</span>')});
  if(tab==='chats'||tab==='groups'){
   const k=tab==='chats'?'direct':'group',rows=convs.filter(c=>c.kind===k);
