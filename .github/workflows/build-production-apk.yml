@@ -74,7 +74,7 @@ jobs:
           apksigner="$(find "$ANDROID_HOME/build-tools" -mindepth 2 -maxdepth 2 -name apksigner | sort -V | tail -n 1)"
           test -n "$apksigner"
           "$apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
-          unzip -p app/build/outputs/apk/release/app-release.apk classes.dex | strings | grep -Fq 'ca-app-pub-7138311889196067/3355094444'
+          unzip -p app/build/outputs/apk/release/app-release.apk classes.dex | strings | grep -F 'ca-app-pub-7138311889196067/3355094444' >/dev/null
           cp app/build/outputs/apk/release/app-release.apk Dark-Chat-v9.13-Production.apk
       - name: Upload signed production APK as workflow artifact
         uses: actions/upload-artifact@v4
