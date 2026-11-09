@@ -146,5 +146,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test -s dist/Dark_Chat_V9_12.html
-          cp dist/Dark_Chat_V9_12.html DarkChat_V9_12_index.html
-          gh release upload v9.12 DarkChat_V9_12_index.html --clobber --repo "$GITHUB_REPOSITORY"
+          cp dist/Dark_Chat_V9_12.html index.html
+          cp index.html DarkChat_V9_12_index.html
+          gh release upload v9.12 index.html DarkChat_V9_12_index.html --clobber --repo "$GITHUB_REPOSITORY"
