@@ -1,4 +1,4 @@
-name: DARK CHAT V9.13.1 — Signed Production APK (Real AdMob)
+name: DARK CHAT V9.13.2 — Signed Production APK (Real AdMob)
 on:
   workflow_dispatch:
 jobs:
@@ -49,7 +49,7 @@ jobs:
           java=Path('app/src/main/java/com/darkchat/app/MainActivity.java').read_text()
           manifest=Path('app/src/main/AndroidManifest.xml').read_text()
           html=Path('app/src/main/assets/index.html').read_text()
-          assert "versionName '9.13.1'" in gradle and "versionCode 23" in gradle
+          assert "versionName '9.13.2'" in gradle and "versionCode 24" in gradle
           assert 'debuggable false' in gradle
           assert "ca-app-pub-7138311889196067/3355094444" in java, 'Live banner ID missing'
           assert "ca-app-pub-7138311889196067~7564520939" in manifest, 'Live AdMob application ID missing'
@@ -75,12 +75,12 @@ jobs:
           test -n "$apksigner"
           "$apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
           unzip -p app/build/outputs/apk/release/app-release.apk classes.dex | strings | grep -F 'ca-app-pub-7138311889196067/3355094444' >/dev/null
-          cp app/build/outputs/apk/release/app-release.apk Dark-Chat-v9.13.1-Production.apk
+          cp app/build/outputs/apk/release/app-release.apk Dark-Chat-v9.13.2-Production.apk
       - name: Upload signed production APK as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_13_1_PRODUCTION_LIVE_ADMOB_APK
-          path: Dark-Chat-v9.13.1-Production.apk
+          name: DARK_CHAT_V9_13_2_PRODUCTION_LIVE_ADMOB_APK
+          path: Dark-Chat-v9.13.2-Production.apk
           if-no-files-found: error
       - name: Publish signed production APK on public GitHub Release
         shell: bash
@@ -88,12 +88,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v9.13.1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload v9.13.1 Dark-Chat-v9.13.1-Production.apk --clobber --repo "$GITHUB_REPOSITORY"
+          if gh release view v9.13.2 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v9.13.2 Dark-Chat-v9.13.2-Production.apk --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create v9.13.1 Dark-Chat-v9.13.1-Production.apk \
+            gh release create v9.13.2 Dark-Chat-v9.13.2-Production.apk \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "DARK CHAT V9.13.1 — Signed Android Production APK" \
-              --notes "Production-signed, non-debug Dark Chat V9.13.1 uses the account's real AdMob banner unit. Actual fill/revenue require a Ready app in AdMob and eligibility/approval. Do not click your own ads. Preserves V9.10 UI, chat, store, camera flip, photo crop, notifications."
+              --title "DARK CHAT V9.13.2 — Signed Android Production APK" \
+              --notes "Production-signed, non-debug Dark Chat V9.13.2 uses the account's real AdMob banner unit. Actual fill/revenue require a Ready app in AdMob and eligibility/approval. Do not click your own ads. Preserves V9.10 UI, chat, store, camera flip, photo crop, notifications."
           fi
