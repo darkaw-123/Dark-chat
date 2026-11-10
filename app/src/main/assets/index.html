@@ -1111,7 +1111,7 @@ function render(){
   '<h4 style="margin:26px 0 0">Change password</h4><label for="pw1">New password</label><input id="pw1" type="password" autocomplete="new-password" maxlength="72"><label for="pw2">Repeat new password</label><input id="pw2" type="password" autocomplete="new-password" maxlength="72"><button class="btn g" data-a="pw" style="width:100%;margin-top:12px">Update password</button>'+
   dcProfileSellerLink()+
   '<h4 style="margin:26px 0 8px">Notifications</h4><button class="btn g" data-a="notif" style="width:100%">'+esc(nlabel())+'</button><div id="nativePushStatus" class="note" style="margin:12px 0">'+esc(window.DarkChat?.statusText||'Checking Android FCM...')+'</div><button class="btn g" data-a="pushcheck" style="width:100%">Check / Retry Android Push</button>'+
-  (window.DarkChatDevice?'<button class="btn g" data-a="pushsettings" style="width:100%;margin-top:10px">Open Android notification settings</button>':'')+
+  (window.DarkChatDevice?'<button class="btn g" data-a="pushsettings" style="width:100%;margin-top:10px">Open Android notification settings</button><button class="btn g" data-a="adstatus" style="width:100%;margin-top:10px">Check Real AdMob Banner Status</button>':'')+
   '<button class="btn g" data-a="out" style="width:100%;margin-top:22px">Log out</button></div>';
  }
 }
@@ -1766,6 +1766,16 @@ const A={
    render();
  },
  pushsettings:()=>{if(window.DarkChatDevice?.openNotificationSettings)window.DarkChatDevice.openNotificationSettings();else toast('Open your Android Settings → Apps → Dark Chat → Notifications.',1)},
+ adstatus:()=>{
+  const bridge=window.DarkChatDevice;
+  let result='AdMob diagnostics are only available in the installed Android APK.';
+  try{if(bridge?.adStatus)result=bridge.adStatus()}catch(err){result=String(err?.message||err)}
+  modal('<div style="padding:8px"><h3 style="margin:0 0 12px">Google AdMob Banner Status</h3><div class="note" style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(result)+'</div><p class="note" style="margin-top:12px">A Google test banner is not proof that live ads are approved. If you see No fill (code 3), check AdMob app readiness.</p><button class="btn" data-a="adretry" style="width:100%;margin-top:12px">Retry Real Banner</button><button class="btn g" data-a="close" style="width:100%;margin-top:10px">Close</button></div>');
+ },
+ adretry:()=>{
+  try{window.DarkChatDevice?.retryAd?.()}catch(err){console.warn('AdMob retry',err)}
+  closeM();toast('AdMob request sent. Check banner status again after a few seconds.');
+ },
  attach:()=>$('#atf')&&$('#atf').click(),
  imgv:a=>modal('<div style="text-align:center"><img alt="" src="'+esc(a.dataset.u)+'" style="max-width:100%;max-height:70dvh;border-radius:14px"><a class="btn g" style="display:block;margin-top:12px;text-decoration:none;text-align:center" href="'+esc(a.dataset.u)+'" target="_blank" rel="noopener">Open full size</a><button class="btn g" data-a="close" style="width:100%;margin-top:10px">Close</button></div>'),
  sttadd:()=>inputModal('Add status','<label for="sf">Photo or video</label><input id="sf" type="file" accept="image/*,video/mp4,video/webm,video/quicktime"><label for="sc">Caption (optional)</label><input id="sc" maxlength="200">','Post status','sttpost'),
