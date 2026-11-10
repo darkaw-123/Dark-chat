@@ -1,4 +1,4 @@
-name: Build DARK CHAT V9.13.2 DEBUG APK with FCM and Google Test Ads
+name: Build DARK CHAT V9.14 DEBUG APK with FCM and Google Test Ads
 on:
   workflow_dispatch:
   push:
@@ -44,7 +44,7 @@ jobs:
           assert "callState('Connecting…')" not in s
           assert '__DC_DEFAULT_AVATAR_BASE64__' not in s, 'Default avatar was not embedded'
           assert 'Obsidian Glow UI' not in s, 'V9.11 redesign must not be used'
-          print('Validated V9.13.2 HTML',len(s),'characters')
+          print('Validated V9.14 HTML',len(s),'characters')
           PY
       - name: Validate inline JavaScript parsing and guest purchase links
         shell: bash
@@ -73,11 +73,11 @@ jobs:
       - name: Export HTML source
         run: |
           mkdir -p dist
-          cp app/src/main/assets/index.html dist/Dark_Chat_V9_13_2.html
+          cp app/src/main/assets/index.html dist/Dark_Chat_V9_14.html
       - name: Upload V9 HTML source
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_13_2_HTML_Source
+          name: DARK_CHAT_V9_14_HTML_Source
           path: dist/
       - name: Install Dark Chat custom purple D launcher icon
         shell: bash
@@ -103,7 +103,7 @@ jobs:
               assert check in service,check
           for check in ["FCM token logout cleanup", "pushsettings:", "notification_blocked", "notification_enabled", "device_push_tokens"]:
               assert check in html,check
-          assert "versionName '9.13.2'" in Path('app/build.gradle').read_text()
+          assert "versionName '9.14'" in Path('app/build.gradle').read_text()
           print('Notification permission, FCM, call alert and account-switch regression checks passed.')
           PY
       - name: Verify live-AdMob diagnostic patch and adaptive banner
@@ -115,14 +115,14 @@ jobs:
           checks=['ca-app-pub-7138311889196067/3355094444', 'getCurrentOrientationAnchoredAdaptiveBannerAdSize', 'lastAdStatus', 'public String adStatus()', 'public void retryAd()', 'onAdFailedToLoad']
           for name in checks: assert name in java, name
           assert 'data-a="adstatus"' in html and 'adretry:' in html
-          assert 'versionCode 24' in Path('app/build.gradle').read_text()
-          print('Real AdMob unit, diagnostics and V9.13.2 version confirmed')
+          assert 'versionCode 25' in Path('app/build.gradle').read_text()
+          print('Real AdMob unit, diagnostics and V9.14 version confirmed')
           PY
       - name: Validate Android app label and secure screen-capture flag
         run: |
           grep -F 'android:label="Dark Chat"' app/src/main/AndroidManifest.xml
           grep -F 'WindowManager.LayoutParams.FLAG_SECURE' app/src/main/java/com/darkchat/app/MainActivity.java
-      - name: Build V9.13.2 APK and Android App Bundles
+      - name: Build V9.14 APK and Android App Bundles
         run: gradle :app:assembleDebug :app:assembleRelease :app:bundleDebug :app:bundleRelease --no-daemon --stacktrace
       - name: Collect unsigned release APK and SDK signing tool for private signing
         shell: bash
@@ -139,25 +139,25 @@ jobs:
       - name: Upload unsigned release for private signing (not installable)
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_13_2_UNSIGNED_APK_AND_SIGNER_FOR_PRIVATE_SIGNING
+          name: DARK_CHAT_V9_14_UNSIGNED_APK_AND_SIGNER_FOR_PRIVATE_SIGNING
           path: dist/unsigned-release/
           if-no-files-found: error
       - name: Upload debug AAB (testing only)
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_13_2_DEBUG_AAB
+          name: DARK_CHAT_V9_14_DEBUG_AAB
           path: app/build/outputs/bundle/debug/app-debug.aab
           if-no-files-found: error
       - name: Upload unsigned release AAB (requires release signing before Play upload)
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_13_2_UNSIGNED_RELEASE_AAB
+          name: DARK_CHAT_V9_14_UNSIGNED_RELEASE_AAB
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
       # Debug builds are never published as public production releases.
       - name: Upload DEBUG APK with Google Test Ads
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_13_2_DEBUG_TEST_ADS_APK
+          name: DARK_CHAT_V9_14_DEBUG_TEST_ADS_APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
