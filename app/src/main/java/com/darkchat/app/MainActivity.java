@@ -25,6 +25,7 @@ import android.provider.Settings;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.util.DisplayMetrics;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
@@ -46,6 +47,7 @@ public final class MainActivity extends Activity {
     private LinearLayout bannerBox;
     private TextView bannerStatus;
     private boolean bannerLoaded=false, bannerIsDebug=false, bannerReady=false;
+    private volatile String lastAdStatus="AdMob not initialized yet";
     private long lastBannerLoadMs=0L;
     private int bannerFailures=0;
     private final Handler bannerHandler=new Handler(Looper.getMainLooper());
@@ -90,6 +92,7 @@ public final class MainActivity extends Activity {
         bannerStatus.setMaxLines(2);
         bannerStatus.setPadding(12,5,12,6);
         bannerStatus.setText("Checking AdMob test banner...");
+        lastAdStatus="Initializing Google Mobile Ads SDK";
         bannerStatus.setVisibility(bannerIsDebug?View.VISIBLE:View.GONE);
         bannerStatus.setOnClickListener(v -> {
             bannerFailures=0;
@@ -97,7 +100,11 @@ public final class MainActivity extends Activity {
             requestBanner(true);
         });
         adView=new AdView(this);
-        adView.setAdSize(AdSize.BANNER);
+        // Adaptive anchored size fits each Android screen rather than forcing a fixed 320dp ad.
+        DisplayMetrics metrics=getResources().getDisplayMetrics();
+        int deviceWidthDp=(int)(metrics.widthPixels/metrics.density);
+        int bannerWidthDp=Math.max(1,deviceWidthDp-16);
+        adView.setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(this,bannerWidthDp));
         adView.setAdUnitId(bannerIsDebug
             ?"ca-app-pub-3940256099942544/6300978111"
             :"ca-app-pub-7138311889196067/3355094444");
@@ -107,7 +114,8 @@ public final class MainActivity extends Activity {
                 bannerLoaded=true;
                 bannerFailures=0;
                 bannerHandler.removeCallbacks(bannerRetry);
-                Log.i("DarkChatAds","Banner loaded");
+                lastAdStatus=(bannerIsDebug?"Google TEST":"Real AdMob")+" banner loaded successfully";
+                Log.i("DarkChatAds",lastAdStatus);
                 if(adView!=null)adView.setVisibility(View.VISIBLE);
                 if(bannerStatus!=null)bannerStatus.setVisibility(View.GONE);
                 if(bannerBox!=null)bannerBox.setVisibility(View.VISIBLE);
@@ -116,6 +124,8 @@ public final class MainActivity extends Activity {
                 bannerLoaded=false;
                 bannerFailures++;
                 final String issue="AdMob error "+error.getCode()+": "+error.getMessage();
+                lastAdStatus=issue+(error.getCode()==3
+                    ?" (No fill: Google did not return an ad. Check AdMob app readiness, policy and availability.)":"");
                 Log.w("DarkChatAds",issue+" | "+error.getDomain());
                 if(adView!=null)adView.setVisibility(View.GONE);
                 if(bannerIsDebug&&bannerStatus!=null){
@@ -125,6 +135,9 @@ public final class MainActivity extends Activity {
                 int seconds=Math.min(180,30*Math.min(bannerFailures,6));
                 bannerHandler.removeCallbacks(bannerRetry);
                 bannerHandler.postDelayed(bannerRetry,seconds*1000L);
+            }
+            @Override public void onAdImpression() {
+                lastAdStatus=(bannerIsDebug?"Test":"Real")+" banner impression recorded by Google";
             }
         });
         bannerBox.addView(adView,new LinearLayout.LayoutParams(-2,-2));
@@ -151,6 +164,8 @@ public final class MainActivity extends Activity {
             @JavascriptInterface public void refreshToken() { runOnUiThread(() -> checkFirebaseToken()); }
             @JavascriptInterface public void requestPermission() { runOnUiThread(() -> requestPushPermission()); }
             @JavascriptInterface public void openNotificationSettings() { runOnUiThread(() -> openAppNotificationSettings()); }
+            @JavascriptInterface public String adStatus() { return lastAdStatus; }
+            @JavascriptInterface public void retryAd() { runOnUiThread(() -> requestBanner(true)); }
         }, "DarkChatDevice");
 
         final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
@@ -226,6 +241,7 @@ public final class MainActivity extends Activity {
         long now=System.currentTimeMillis();
         if(!force&&now-lastBannerLoadMs<25000L)return;
         lastBannerLoadMs=now;
+        lastAdStatus=(bannerIsDebug?"Google TEST":"Real AdMob")+" banner request sent; waiting for Google";
         bannerHandler.removeCallbacks(bannerRetry);
         if(bannerIsDebug&&bannerStatus!=null){
             bannerStatus.setText("Loading Google test banner...");
@@ -236,6 +252,7 @@ public final class MainActivity extends Activity {
             adView.loadAd(new AdRequest.Builder().build());
         }catch(Exception e){
             bannerLoaded=false;
+            lastAdStatus="AdMob request exception: "+e.getClass().getSimpleName()+": "+e.getMessage();
             Log.e("DarkChatAds","Banner request error",e);
             if(bannerIsDebug&&bannerStatus!=null){
                 bannerStatus.setText("Ad request error: "+e.getClass().getSimpleName()+" · Tap to retry");
