@@ -1,4 +1,4 @@
-name: Dark Chat V9.14 — Google Play signed AAB (com.darkaw.chat)
+name: Dark Chat V9.14 — Google Play signed AAB (com.darkaw.darkchat)
 on:
   workflow_dispatch:
   push:
@@ -52,9 +52,9 @@ jobs:
           from pathlib import Path
           config=json.loads(Path("app/google-services.json").read_text())
           names=[client.get("client_info",{}).get("android_client_info",{}).get("package_name") for client in config.get("client",[])]
-          assert "com.darkaw.chat" in names, "New Firebase google-services.json is required for com.darkaw.chat. Upload it to this repo or configure Actions secret DARKCHAT_FIREBASE_JSON_B64."
+          assert "com.darkaw.darkchat" in names, "New Firebase google-services.json is required for com.darkaw.darkchat. Upload it to this repo or configure Actions secret DARKCHAT_FIREBASE_JSON_B64."
           gradle=Path("app/build.gradle").read_text()
-          assert "applicationId 'com.darkaw.chat'" in gradle
+          assert "applicationId 'com.darkaw.darkchat'" in gradle
           assert "versionName '9.14'" in gradle
           assert "versionCode 25" in gradle
           assert "targetSdk 36" in gradle
@@ -91,10 +91,10 @@ jobs:
           jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab > /tmp/aab-signature-report.txt
           grep -q 'jar verified' /tmp/aab-signature-report.txt
           mkdir -p dist
-          cp app/build/outputs/bundle/release/app-release.aab dist/DarkChat_V9_14_com.darkaw.chat_Play_Release.aab
+          cp app/build/outputs/bundle/release/app-release.aab dist/DarkChat_V9_14_com.darkaw.darkchat_Play_Release.aab
       - name: Upload signed Play AAB
         uses: actions/upload-artifact@v4
         with:
           name: DARK_CHAT_V9_14_com_darkaw_chat_SIGNED_PLAY_AAB
-          path: dist/DarkChat_V9_14_com.darkaw.chat_Play_Release.aab
+          path: dist/DarkChat_V9_14_com.darkaw.darkchat_Play_Release.aab
           if-no-files-found: error
