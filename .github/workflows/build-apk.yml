@@ -50,7 +50,7 @@ jobs:
           from pathlib import Path
           config=json.loads(Path('app/google-services.json').read_text())
           packages=[c.get('client_info',{}).get('android_client_info',{}).get('package_name') for c in config.get('client',[])]
-          required='com.darkaw.chat'
+          required='com.darkaw.darkchat'
           assert required in packages, (
               'The Firebase JSON does not match the selected app. Provide a matching google-services.json '
               'to app/google-services.json OR configure GitHub Actions secret DARKCHAT_FIREBASE_JSON_B64. '
