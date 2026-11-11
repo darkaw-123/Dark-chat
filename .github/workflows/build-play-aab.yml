@@ -1,17 +1,27 @@
-name: Build DARK CHAT V9.8 Android 16 Play-Compatible AAB
+name: Dark Chat V9.14 — Google Play signed AAB (com.darkaw.chat)
 on:
   workflow_dispatch:
   push:
     paths:
+      - 'app/**'
+      - 'build.gradle'
+      - 'gradle.properties'
       - '.github/workflows/build-play-aab.yml'
+
 jobs:
-  build-play-bundle:
+  play-aab:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DC_RELEASE_KEYSTORE_B64: ${{ secrets.DARKCHAT_RELEASE_KEYSTORE_B64 }}
+      DARKCHAT_RELEASE_STORE_PASSWORD: ${{ secrets.DARKCHAT_RELEASE_STORE_PASSWORD }}
+      DARKCHAT_RELEASE_KEY_ALIAS: ${{ secrets.DARKCHAT_RELEASE_KEY_ALIAS }}
+      DARKCHAT_RELEASE_KEY_PASSWORD: ${{ secrets.DARKCHAT_RELEASE_KEY_PASSWORD }}
+      DARKCHAT_FIREBASE_JSON_B64: ${{ secrets.DARKCHAT_FIREBASE_JSON_B64 }}
     steps:
-      - name: Checkout DARK CHAT V9.8 sources
+      - name: Checkout original Dark Chat V9.14 sources
         uses: actions/checkout@v4
       - name: Install Java 17
         uses: actions/setup-java@v4
@@ -29,36 +39,62 @@ jobs:
           if [ -z "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"; fi
           yes | "$SDKMANAGER" 'platforms;android-36' >/dev/null || true
           test -d "$ANDROID_HOME/platforms/android-36"
-      - name: Apply Play-required target API 36 only to this build
-        run: |
-          sed -i 's/compileSdk 35/compileSdk 36/; s/targetSdk 35/targetSdk 36/' app/build.gradle
-          sed -i "s/version '8.9.2'/version '8.10.1'/" build.gradle
-          grep -F 'compileSdk 36' app/build.gradle
-          grep -F 'targetSdk 36' app/build.gradle
-          grep -F "version '8.10.1'" build.gradle
-          grep -F "versionName '9.8'" app/build.gradle
-          grep -F "applicationId 'com.darkchat.app'" app/build.gradle
-      - name: Use the user-supplied DARK CHAT D icon
+      - name: Install new Firebase file and verify Play package
         shell: bash
         run: |
-          test -s app/src/main/assets/dark_chat_logo_new.webp.b64
-          find app/src/main/res -type f -name 'dark_chat_logo.*' -delete
+          set -euo pipefail
+          if [ -n "${DARKCHAT_FIREBASE_JSON_B64:-}" ]; then
+            umask 077
+            printf '%s' "$DARKCHAT_FIREBASE_JSON_B64" | base64 --decode > app/google-services.json
+          fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          config=json.loads(Path("app/google-services.json").read_text())
+          names=[client.get("client_info",{}).get("android_client_info",{}).get("package_name") for client in config.get("client",[])]
+          assert "com.darkaw.chat" in names, "New Firebase google-services.json is required for com.darkaw.chat. Upload it to this repo or configure Actions secret DARKCHAT_FIREBASE_JSON_B64."
+          gradle=Path("app/build.gradle").read_text()
+          assert "applicationId 'com.darkaw.chat'" in gradle
+          assert "versionName '9.14'" in gradle
+          assert "versionCode 25" in gradle
+          assert "targetSdk 36" in gradle
+          manifest=Path("app/src/main/AndroidManifest.xml").read_text()
+          assert "ca-app-pub-7138311889196067~7564520939" in manifest
+          print("Firebase Android client and Dark Chat Play settings confirmed.")
+          PY
+      - name: Restore existing production signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in DC_RELEASE_KEYSTORE_B64 DARKCHAT_RELEASE_STORE_PASSWORD DARKCHAT_RELEASE_KEY_ALIAS DARKCHAT_RELEASE_KEY_PASSWORD; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error title=Missing signing secret::$key is required; never create a random Play signing key for an existing app."
+              exit 1
+            fi
+          done
+          umask 077
+          printf '%s' "$DC_RELEASE_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/darkchat-release.jks"
+          echo "DARKCHAT_RELEASE_KEYSTORE_FILE=$RUNNER_TEMP/darkchat-release.jks" >> "$GITHUB_ENV"
+          keytool -list -keystore "$RUNNER_TEMP/darkchat-release.jks" -storepass "$DARKCHAT_RELEASE_STORE_PASSWORD" -alias "$DARKCHAT_RELEASE_KEY_ALIAS" >/dev/null
+      - name: Restore original Dark Chat launcher icon
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p app/src/main/res/drawable-nodpi
           base64 --decode app/src/main/assets/dark_chat_logo_new.webp.b64 > app/src/main/res/drawable-nodpi/dark_chat_logo.webp
-          test "$(wc -c < app/src/main/res/drawable-nodpi/dark_chat_logo.webp)" -gt 2500
-      - name: Bundle release APK code as unsigned AAB
-        run: gradle :app:bundleRelease --no-daemon --stacktrace
-      - name: Upload API36 unsigned AAB artifact
+      - name: Create signed Google Play bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:bundleRelease --no-daemon --stacktrace
+          test -s app/build/outputs/bundle/release/app-release.aab
+          jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab > /tmp/aab-signature-report.txt
+          grep -q 'jar verified' /tmp/aab-signature-report.txt
+          mkdir -p dist
+          cp app/build/outputs/bundle/release/app-release.aab dist/DarkChat_V9_14_com.darkaw.chat_Play_Release.aab
+      - name: Upload signed Play AAB
         uses: actions/upload-artifact@v4
         with:
-          name: DARK_CHAT_V9_8_PLAY_API36_UNSIGNED_AAB
-          path: app/build/outputs/bundle/release/app-release.aab
+          name: DARK_CHAT_V9_14_com_darkaw_chat_SIGNED_PLAY_AAB
+          path: dist/DarkChat_V9_14_com.darkaw.chat_Play_Release.aab
           if-no-files-found: error
-      - name: Publish unsigned Play-target bundle for local signing
-        continue-on-error: true
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cp app/build/outputs/bundle/release/app-release.aab Dark-Chat-v9.8-API36-unsigned.aab
-          gh release upload v9.8 Dark-Chat-v9.8-API36-unsigned.aab --clobber --repo "$GITHUB_REPOSITORY"
