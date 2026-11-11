@@ -504,6 +504,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         if (active == this) active = null;
         bannerHandler.removeCallbacks(bannerRetry);
+        if (storeBilling != null) {storeBilling.close();storeBilling=null;}
         if (adView != null) { adView.destroy(); adView = null; }
         if (webView != null) webView.destroy();
         super.onDestroy();
