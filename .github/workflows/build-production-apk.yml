@@ -57,9 +57,9 @@ jobs:
           from pathlib import Path
           config=json.loads(Path('app/google-services.json').read_text())
           packages=[c.get('client_info',{}).get('android_client_info',{}).get('package_name') for c in config.get('client',[])]
-          required='com.darkaw.darkchat'
+          required='com.darkchat.app'
           assert required in packages, (
-              'The Firebase JSON is still for the old app. Please upload the new google-services.json '
+              'The Firebase JSON does not match the selected app. Provide a matching google-services.json '
               'to app/google-services.json OR configure GitHub Actions secret DARKCHAT_FIREBASE_JSON_B64. '
               'Expected package: '+required)
           assert config.get('project_info',{}).get('project_id')=='dark-chat-31924',(
@@ -76,7 +76,7 @@ jobs:
           manifest=Path('app/src/main/AndroidManifest.xml').read_text()
           html=Path('app/src/main/assets/index.html').read_text()
           assert "versionName '9.14'" in gradle and "versionCode 25" in gradle
-          assert "applicationId 'com.darkaw.darkchat'" in gradle and "targetSdk 36" in gradle
+          assert "applicationId 'com.darkchat.app'" in gradle and "targetSdk 36" in gradle
           assert 'debuggable false' in gradle
           assert "ca-app-pub-7138311889196067/3355094444" in java, 'Live banner ID missing'
           assert "ca-app-pub-7138311889196067~7564520939" in manifest, 'Live AdMob application ID missing'
