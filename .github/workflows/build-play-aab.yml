@@ -89,7 +89,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gradle :app:bundleRelease -PdarkChatPlay=true --no-daemon --stacktrace
+          gradle :app:assembleRelease :app:bundleRelease -PdarkChatPlay=true --no-daemon --stacktrace
           test -s app/build/outputs/bundle/release/app-release.aab
           if [ -n "${DARKCHAT_RELEASE_KEYSTORE_FILE:-}" ]; then
             jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab > /tmp/aab-signature-report.txt
@@ -100,9 +100,17 @@ jobs:
           fi
           mkdir -p dist
           cp app/build/outputs/bundle/release/app-release.aab dist/DarkChat_V9_14_com.darkaw.darkchat_Play_Release.aab
+          if [ -s app/build/outputs/apk/release/app-release-unsigned.apk ]; then
+            cp app/build/outputs/apk/release/app-release-unsigned.apk dist/DarkChat_V9_14_com.darkaw.darkchat_Play_Unsigned.apk
+          elif [ -s app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk dist/DarkChat_V9_14_com.darkaw.darkchat_Play_Unsigned.apk
+          else
+            echo "::error::Play variant APK missing"
+            exit 1
+          fi
       - name: Upload signed Play AAB
         uses: actions/upload-artifact@v4
         with:
           name: DARK_CHAT_V9_14_com_darkaw_chat_SIGNED_PLAY_AAB
-          path: dist/DarkChat_V9_14_com.darkaw.darkchat_Play_Release.aab
+          path: dist/
           if-no-files-found: error
