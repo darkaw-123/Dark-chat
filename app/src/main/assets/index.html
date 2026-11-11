@@ -1950,7 +1950,7 @@ const h=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt
 const money=n=>'Rs. '+Number(n||0).toLocaleString('en-PK',{maximumFractionDigits:2});
 const photo=p=>p?sb.storage.from('darkchat-store-images').getPublicUrl(p).data.publicUrl:'';
 const isHttps=u=>/^https:\/\//i.test(String(u||''));
-let playBillingPrice=null;
+let playBillingPrice=null,playBillingBusy=false;
 const isGooglePlayBuild=()=>Boolean(window.DarkChatDevice?.isPlayStoreBuild?.());
 let settings=null,stores=[],myStore=null,cats=[],products=[],rules=[],orders=[],buyerOrders=[],requests=[],view='browse',lastRenderedStoreView=null,picked=null,cart=[],loading=false,orderChannel=null,requestChannel=null,buyerOrderChannel=null,detailId=null,checkoutMode='cart',singleProductId=null,keywordSearch='',pendingReceiptMap=new Map();
 // Avoid 5-8 Supabase requests on every Store/Cart tab change.
@@ -1991,7 +1991,7 @@ function sellerSharePanel(){
 
  function tabs(){
   const c=cart.reduce((a,x)=>a+x.quantity,0);
-  const options=myStore?[['my','Seller Dashboard'],['browse','Shop'],['cart','Cart'+(c?' · '+c:'')],['orders','My Orders']]:[['my','Open Store · Rs. 1,500'],['browse','Shop'],['cart','Cart'+(c?' · '+c:'')]];
+  const options=myStore?[['my','Seller Dashboard'],['browse','Shop'],['cart','Cart'+(c?' · '+c:'')],['orders','My Orders']]:[['my',isGooglePlayBuild()?'Buy Store · Google Play':'Open Store · Rs. 1,500'],['browse','Shop'],['cart','Cart'+(c?' · '+c:'')]];
   return '<nav class="dcstabs" aria-label="Marketplace">'+options.map(([v,t])=>
     '<button type="button" class="btn g '+(view===v?'dcs-selected':'')+'" data-s="'+v+'" aria-current="'+(view===v?'page':'false')+'">'+h(t)+'</button>').join('')+'</nav>';
  }
@@ -2043,7 +2043,7 @@ function renderBrowse(){
  const s=stores.find(x=>x.owner_id===picked),own=products.filter(p=>p.owner_id===picked);
  const match=keywordSearch.trim().toLowerCase();
  const matching=match?own.filter(p=>[p.name,p.description].some(x=>String(x||'').toLowerCase().includes(match))):own;
- return (!myStore?card('<div class="dcs-section-intro"><span class="dcs-eyebrow">SELL ON DARK CHAT</span><h3>Open Your Store — Rs. 1,500</h3><p class="dcsdim">Every account can request a seller store. Pay Rs. 1,500 once to JazzCash, submit your transaction ID, and wait for admin verification before your store opens.</p>'+btn('my','Get My Store · Rs. 1,500')+'</div>'):'')+card('<div class="dcs-section-intro"><span class="dcs-eyebrow">FREE BUYER ACCESS</span><h3>Buy products without buying a store</h3><p class="dcsdim">Shopping is free to access. Choose a seller, select any product, and pay only its product price. Store activation is only for people who want to sell.</p></div><div class="dcsstores">'+(listing||'<p class="dcsdim">No stores available yet.</p>')+'</div>')+
+ return (!myStore?card('<div class="dcs-section-intro"><span class="dcs-eyebrow">SELL ON DARK CHAT</span><h3>Open Your Store — Rs. 1,500</h3><p class="dcsdim">'+(isGooglePlayBuild()?'Activate your seller store directly through secure Google Play checkout. Your purchase will be verified before your shop opens.':'Pay once through JazzCash and send a receipt for admin approval. The Google Play purchase option is available in the Play Store edition.')+'</p>'+(isGooglePlayBuild()?'<button class="btn" type="button" data-s="buyPlayStore" style="width:100%;margin:8px 0;background:linear-gradient(110deg,#7044dc,#9437d8);color:#fff;font-weight:700" '+(playBillingBusy?'disabled':'')+'>▶ '+(playBillingBusy?'Opening Google Play…':'Pay Now with Google Play')+'</button>':'')+btn('my',isGooglePlayBuild()?'Store activation details':'Get My Store · Rs. 1,500')+'</div>'):'')+card('<div class="dcs-section-intro"><span class="dcs-eyebrow">FREE BUYER ACCESS</span><h3>Buy products without buying a store</h3><p class="dcsdim">Shopping is free to access. Choose a seller, select any product, and pay only its product price. Store activation is only for people who want to sell.</p></div><div class="dcsstores">'+(listing||'<p class="dcsdim">No stores available yet.</p>')+'</div>')+
  (s?card('<div class="dcs-section-intro"><span class="dcs-eyebrow">SELECTED SELLER</span><h3>'+h(s.store_name)+'</h3><p class="dcsdim">'+h(s.description)+'</p></div><form data-f="search"><input name="term" class="dcs-search" placeholder="Search products" value="'+h(keywordSearch)+'"><button class="btn g s" type="submit">Find products</button></form><div class="dcsgrid">'+(matching.map(itemTile).join('')||'<div class="dcs-empty-small">No matching products found.</div>')+'</div>'):'');
 }
 function renderDetail(){
@@ -2061,7 +2061,7 @@ function requestPanel(){
  const heading='<div class="dcspayhero"><div class="dcspill">✦ DARK CHAT MARKETPLACE</div><div class="dcspayemblem">STORE ACTIVATION</div><h2>Start Your Own Store</h2><p>Sell products directly through your Dark Chat profile. Your store dashboard is protected until payment is verified by an administrator.</p><div class="dcstotal"><small>One-time store activation</small><strong>'+(play?(playBillingPrice||'See Google Play checkout'):price)+'</strong><span>'+(play?'Google Play secure billing · one-time purchase':'PKR · Manually approved')+'</span></div></div>';
  if(play)return '<div class="dcsflow">'+heading+
    card('<h3>Google Play — Open Your Store</h3><p class="dcsdim">Store activation is a digital feature. Google Play Billing handles the payment safely; the purchase is verified with Google before your store is activated.</p><p class="dcsdim">Planned price: Rs. 1,500. Your actual localized checkout price is shown by Google Play.</p>'+
-     '<button class="btn" data-s="buyPlayStore" style="width:100%">Buy Store with Google Play</button>'+
+     '<button class="btn" data-s="buyPlayStore" style="width:100%;padding:15px;font-size:16px;font-weight:700;background:linear-gradient(110deg,#7044dc,#9437d8);color:#fff" '+(playBillingBusy?'disabled':'')+'>▶ '+(playBillingBusy?'Opening Google Play checkout…':'Pay Now with Google Play')+'</button>'+
      '<button class="btn g" data-s="restorePlayStore" style="width:100%;margin-top:9px">Restore Google Play Purchase</button>'+
      '<p class="dcsdim">A Google Play account, active store activation product, and secure verification are required. Pending or cancelled payments never unlock the seller dashboard.</p>')+footer+'</div>';
  if(pending)return '<div class="dcsflow">'+heading+
@@ -2321,8 +2321,13 @@ async function submit(form){
 async function action(button){
  const op=button.dataset.s,id=button.dataset.id;
  if(op==='buyPlayStore'){
-  if(!me?.id||!isGooglePlayBuild())return message('Google Play store activation is available only in the signed Play Store app.',true);
-  window.DarkChatDevice.buyStoreWithGooglePlay(me.id);return;
+  if(!me?.id||!isGooglePlayBuild())return message('Install Dark Chat from Google Play to use Google Play checkout.',true);
+  if(playBillingBusy)return;
+  playBillingBusy=true;
+  if(root())render();
+  try{window.DarkChatDevice.buyStoreWithGooglePlay(me.id)}
+  catch(error){playBillingBusy=false;message('Unable to open Google Play: '+String(error?.message||error),true);if(root())render()}
+  return;
  }
  if(op==='restorePlayStore'){
   if(!me?.id||!isGooglePlayBuild())return message('Open the Google Play version and sign in first.',true);
@@ -2606,7 +2611,7 @@ window.addEventListener('darkchat-play-billing',async e=>{
   return;
  }
  if(event.status==='verify'){
-  if(!me?.id||!event.token)return message('Please sign in and restore your purchase.',true);
+  if(!me?.id||!event.token){playBillingBusy=false;return message('Please sign in and restore your purchase.',true);}
   message('Google Play purchase received. Checking the receipt securely...');
   try{
    const {data,error}=await sb.functions.invoke('darkchat-verify-play-store',{body:{purchase_token:event.token}});
@@ -2616,8 +2621,10 @@ window.addEventListener('darkchat-play-billing',async e=>{
    message('Your verified Google Play store is active. Banner advertisements are now removed.');
    view='my';if(root())render();
   }catch(error){message('Store not activated: '+String(error?.message||error)+'. Use Restore Purchase after configuration is complete.',true)}
+  playBillingBusy=false;if(root())render();
   return;
  }
+ playBillingBusy=false;if(root())render();
  if(event.status==='pending')message('Payment pending. Store will open only after Google confirms payment.');
  else if(event.status==='error')message(event.message||'Google Play payment unavailable.',true);
  else if(event.status==='info')message(event.message||'No previous purchase found.');
