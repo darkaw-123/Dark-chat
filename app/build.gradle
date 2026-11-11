@@ -24,6 +24,9 @@ android {
         versionCode 25
         versionName '9.14'
     }
+    // Only Play-bundled releases use Google Play Billing for digital seller activation.
+    // Direct-sideload APK releases keep the existing JazzCash manual approval workflow.
+    buildFeatures { buildConfig true }
     signingConfigs {
         production {
             if (dcReleaseSigningReady) {
@@ -36,10 +39,12 @@ android {
     }
     buildTypes {
         debug {
+            buildConfigField 'boolean', 'PLAY_STORE_BUILD', 'false'
             // The existing debug APK uses Google's demo ads for safe testing.
             debuggable true
         }
         release {
+            buildConfigField 'boolean', 'PLAY_STORE_BUILD', project.hasProperty('darkChatPlay') ? 'true' : 'false'
             debuggable false
             minifyEnabled false
             if (dcReleaseSigningReady) {
@@ -58,4 +63,5 @@ dependencies {
     implementation 'androidx.webkit:webkit:1.14.0'
     implementation 'com.google.android.gms:play-services-base:18.11.0'
     implementation 'com.google.android.gms:play-services-ads:25.4.0'
+    implementation 'com.android.billingclient:billing:9.1.0'
 }
