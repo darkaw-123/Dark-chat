@@ -47,6 +47,8 @@ public final class MainActivity extends Activity {
     private LinearLayout bannerBox;
     private TextView bannerStatus;
     private boolean bannerLoaded=false, bannerIsDebug=false, bannerReady=false;
+    private boolean sellerAdFree=false;
+    private PlayStoreBilling storeBilling;
     private volatile String lastAdStatus="AdMob not initialized yet";
     private long lastBannerLoadMs=0L;
     private int bannerFailures=0;
@@ -116,12 +118,13 @@ public final class MainActivity extends Activity {
                 bannerHandler.removeCallbacks(bannerRetry);
                 lastAdStatus=(bannerIsDebug?"Google TEST":"Real AdMob")+" banner loaded successfully";
                 Log.i("DarkChatAds",lastAdStatus);
-                if(adView!=null)adView.setVisibility(View.VISIBLE);
+                if(adView!=null)adView.setVisibility(sellerAdFree?View.GONE:View.VISIBLE);
                 if(bannerStatus!=null)bannerStatus.setVisibility(View.GONE);
-                if(bannerBox!=null)bannerBox.setVisibility(View.VISIBLE);
+                if(bannerBox!=null)bannerBox.setVisibility(sellerAdFree?View.GONE:View.VISIBLE);
             }
             @Override public void onAdFailedToLoad(LoadAdError error) {
                 bannerLoaded=false;
+                if(sellerAdFree){bannerHandler.removeCallbacks(bannerRetry);return;}
                 bannerFailures++;
                 final String issue="AdMob error "+error.getCode()+": "+error.getMessage();
                 lastAdStatus=issue+(error.getCode()==3
@@ -144,6 +147,7 @@ public final class MainActivity extends Activity {
         bannerBox.addView(bannerStatus,new LinearLayout.LayoutParams(-1,-2));
         shell.addView(bannerBox,new LinearLayout.LayoutParams(-1,-2));
         setContentView(shell);
+        storeBilling=new PlayStoreBilling(this,this::sendPlayBillingEvent);
         new Thread(() -> MobileAds.initialize(this,status->
             runOnUiThread(() -> {
                 bannerReady=true;
@@ -166,6 +170,16 @@ public final class MainActivity extends Activity {
             @JavascriptInterface public void openNotificationSettings() { runOnUiThread(() -> openAppNotificationSettings()); }
             @JavascriptInterface public String adStatus() { return lastAdStatus; }
             @JavascriptInterface public void retryAd() { runOnUiThread(() -> requestBanner(true)); }
+            @JavascriptInterface public boolean isPlayStoreBuild() {return BuildConfig.PLAY_STORE_BUILD;}
+            @JavascriptInterface public void setSellerStoreActive(boolean approved) {
+                runOnUiThread(() -> setSellerAdFree(approved));
+            }
+            @JavascriptInterface public void buyStoreWithGooglePlay(String userId) {
+                runOnUiThread(() -> {if(storeBilling!=null)storeBilling.buy(userId);});
+            }
+            @JavascriptInterface public void restoreGooglePlayStore() {
+                runOnUiThread(() -> {if(storeBilling!=null)storeBilling.restore();});
+            }
         }, "DarkChatDevice");
 
         final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
@@ -237,7 +251,7 @@ public final class MainActivity extends Activity {
 
 
     private void requestBanner(boolean force){
-        if(!bannerReady||adView==null||isFinishing())return;
+        if(!bannerReady||adView==null||isFinishing()||sellerAdFree)return;
         long now=System.currentTimeMillis();
         if(!force&&now-lastBannerLoadMs<25000L)return;
         lastBannerLoadMs=now;
@@ -247,7 +261,7 @@ public final class MainActivity extends Activity {
             bannerStatus.setText("Loading Google test banner...");
             bannerStatus.setVisibility(View.VISIBLE);
         }
-        if(bannerBox!=null)bannerBox.setVisibility(View.VISIBLE);
+        if(bannerBox!=null)bannerBox.setVisibility(sellerAdFree?View.GONE:View.VISIBLE);
         try{
             adView.loadAd(new AdRequest.Builder().build());
         }catch(Exception e){
@@ -260,6 +274,33 @@ public final class MainActivity extends Activity {
             }
             bannerHandler.postDelayed(bannerRetry,45000L);
         }
+    }
+
+    // Suppress banner ads ONLY while an approved store owner is signed in.
+    // The WebView requests this state after checking Supabase dc_stores.active;
+    // a logout/account switch resets it. This never alters AdMob IDs.
+    private void setSellerAdFree(boolean approved) {
+        if (sellerAdFree==approved)return;
+        sellerAdFree=approved;
+        if(approved){
+            bannerHandler.removeCallbacks(bannerRetry);
+            if(adView!=null)adView.setVisibility(View.GONE);
+            if(bannerBox!=null)bannerBox.setVisibility(View.GONE);
+            lastAdStatus="Ad-free seller account (verified active store)";
+        }else{
+            if(bannerBox!=null)bannerBox.setVisibility(View.VISIBLE);
+            if(bannerLoaded&&adView!=null)adView.setVisibility(View.VISIBLE);
+            else requestBanner(true);
+        }
+    }
+
+    private void sendPlayBillingEvent(String status,String message,String token,String price) {
+        if(webView==null)return;
+        String javascript="window.dispatchEvent(new CustomEvent('darkchat-play-billing',{detail:{status:"
+            +JSONObject.quote(status)+",message:"+JSONObject.quote(message==null?"":message)
+            +",token:"+(token==null?"null":JSONObject.quote(token))
+            +",price:"+(price==null?"null":JSONObject.quote(price))+"}}));";
+        runOnUiThread(()->webView.evaluateJavascript(javascript,null));
     }
 
     private void captureSellerIntent(Intent intent) {
