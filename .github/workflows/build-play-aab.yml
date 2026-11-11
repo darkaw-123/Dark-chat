@@ -71,8 +71,8 @@ jobs:
           set -euo pipefail
           for key in DC_RELEASE_KEYSTORE_B64 DARKCHAT_RELEASE_STORE_PASSWORD DARKCHAT_RELEASE_KEY_ALIAS DARKCHAT_RELEASE_KEY_PASSWORD; do
             if [ -z "${!key:-}" ]; then
-              echo "::error title=Missing signing secret::$key is required; never create a random Play signing key for an existing app."
-              exit 1
+              echo "Production signing secret unavailable. Build unsigned AAB for PRIVATE signing with the owner's existing key."
+              exit 0
             fi
           done
           umask 077
@@ -91,8 +91,13 @@ jobs:
           set -euo pipefail
           gradle :app:bundleRelease -PdarkChatPlay=true --no-daemon --stacktrace
           test -s app/build/outputs/bundle/release/app-release.aab
-          jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab > /tmp/aab-signature-report.txt
-          grep -q 'jar verified' /tmp/aab-signature-report.txt
+          if [ -n "${DARKCHAT_RELEASE_KEYSTORE_FILE:-}" ]; then
+            jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab > /tmp/aab-signature-report.txt
+            grep -q 'jar verified' /tmp/aab-signature-report.txt
+            echo "Release AAB signed with existing production identity."
+          else
+            echo "UNSIGNED Play AAB generated: must be signed privately before Play Console upload."
+          fi
           mkdir -p dist
           cp app/build/outputs/bundle/release/app-release.aab dist/DarkChat_V9_14_com.darkaw.darkchat_Play_Release.aab
       - name: Upload signed Play AAB
