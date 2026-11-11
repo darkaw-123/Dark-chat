@@ -587,10 +587,12 @@ async function dcRefreshSellerChatLink(){
   ]);
   if(shop.error||settings.error)throw(shop.error||settings.error);
   dcSellerHasShop=shop.data?.active===true;
+  if(window.DarkChatDevice?.setSellerStoreActive)window.DarkChatDevice.setSellerStoreActive(dcSellerHasShop);
   dcSellerShareOrigin=dcSafeShareOrigin(settings.data?.share_site_url)||DC_DEFAULT_SHARE_SITE;
  }catch(_){
   // Keep the chat functioning even if the optional seller-link request fails.
   dcSellerHasShop=false;
+  if(window.DarkChatDevice?.setSellerStoreActive)window.DarkChatDevice.setSellerStoreActive(false);
  }
 }
 function dcProfileSellerLink(){
@@ -1754,6 +1756,7 @@ const A={
    catch(error){console.warn('FCM logout cleanup failed:',error)}
   }
   if(window.DarkChat)window.DarkChat._registeredUser=null;
+  if(window.DarkChatDevice?.setSellerStoreActive)window.DarkChatDevice.setSellerStoreActive(false);
   teardown();await sb.auth.signOut();
  },
  save:a=>guarded(a,async()=>{const n=$('#dn').value.trim(),ab=$('#ab2').value.trim().slice(0,200);if(n.length<2||n.length>32)throw new Error('Name must be 2–32 characters.');const {error}=await sb.from('profiles').update({display_name:n,about:ab,updated_at:new Date().toISOString()}).eq('id',me.id);if(error)throw error;prof.display_name=n;prof.about=ab;names[me.id].display_name=n;toast('Profile saved.')}),
@@ -1927,6 +1930,8 @@ const h=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt
 const money=n=>'Rs. '+Number(n||0).toLocaleString('en-PK',{maximumFractionDigits:2});
 const photo=p=>p?sb.storage.from('darkchat-store-images').getPublicUrl(p).data.publicUrl:'';
 const isHttps=u=>/^https:\/\//i.test(String(u||''));
+let playBillingPrice=null;
+const isGooglePlayBuild=()=>Boolean(window.DarkChatDevice?.isPlayStoreBuild?.());
 let settings=null,stores=[],myStore=null,cats=[],products=[],rules=[],orders=[],buyerOrders=[],requests=[],view='browse',lastRenderedStoreView=null,picked=null,cart=[],loading=false,orderChannel=null,requestChannel=null,buyerOrderChannel=null,detailId=null,checkoutMode='cart',singleProductId=null,keywordSearch='',pendingReceiptMap=new Map();
 // Avoid 5-8 Supabase requests on every Store/Cart tab change.
 const STORE_CACHE_TTL_MS=25000;
@@ -1991,6 +1996,7 @@ async function fetchFreshStoreData(){
  settings=ss.data||{store_price_pkr:1500,jazzcash_number:'03067008420',jazzcash_account_name:'Abdul Waheed'};
  stores=st.data||[];products=pr.data||[];requests=req.data||[];
  myStore=stores.find(x=>x.owner_id===me.id)||null;
+ if(window.DarkChatDevice?.setSellerStoreActive)window.DarkChatDevice.setSellerStoreActive(!!myStore?.active);
  dcSellerHasShop=!!myStore?.active;dcSellerShareOrigin=dcSafeShareOrigin(settings?.share_site_url)||DC_DEFAULT_SHARE_SITE;
  buyerOrders=bought.data||[];
  cats=[];rules=[];orders=[];
@@ -2029,10 +2035,15 @@ function renderDetail(){
 
 function requestPanel(){
  const last=requests[0],pending=last?.status==='pending',rejected=last?.status==='rejected';
- const gpay=isHttps(settings.google_pay_checkout_url),price=money(settings.store_price_pkr);
+ const play=isGooglePlayBuild(),price=money(settings.store_price_pkr);
  const how='<div class="dcssteps"><div><span>01</span><b>Make Payment</b><small>Transfer the exact amount to JazzCash.</small></div><div><span>02</span><b>Send Proof</b><small>Enter TID and attach your payment screenshot.</small></div><div><span>03</span><b>Admin Approval</b><small>Store tools unlock after verification.</small></div></div>';
  const footer=card('<div class="dcsafter"><h4>Looking to shop?</h4><p>Anyone can order products without paying for store activation. This fee is only for sellers.</p>'+btn('browse','Browse available stores')+'</div>');
- const heading='<div class="dcspayhero"><div class="dcspill">✦ DARK CHAT MARKETPLACE</div><div class="dcspayemblem">STORE ACTIVATION</div><h2>Start Your Own Store</h2><p>Sell products directly through your Dark Chat profile. Your store dashboard is protected until payment is verified by an administrator.</p><div class="dcstotal"><small>One-time store activation</small><strong>'+price+'</strong><span>PKR · Manually approved</span></div></div>';
+ const heading='<div class="dcspayhero"><div class="dcspill">✦ DARK CHAT MARKETPLACE</div><div class="dcspayemblem">STORE ACTIVATION</div><h2>Start Your Own Store</h2><p>Sell products directly through your Dark Chat profile. Your store dashboard is protected until payment is verified by an administrator.</p><div class="dcstotal"><small>One-time store activation</small><strong>'+(play?(playBillingPrice||'See Google Play checkout'):price)+'</strong><span>'+(play?'Google Play secure billing · one-time purchase':'PKR · Manually approved')+'</span></div></div>';
+ if(play)return '<div class="dcsflow">'+heading+
+   card('<h3>Google Play — Open Your Store</h3><p class="dcsdim">Store activation is a digital feature. Google Play Billing handles the payment safely; the purchase is verified with Google before your store is activated.</p><p class="dcsdim">Planned price: Rs. 1,500. Your actual localized checkout price is shown by Google Play.</p>'+
+     '<button class="btn" data-s="buyPlayStore" style="width:100%">Buy Store with Google Play</button>'+
+     '<button class="btn g" data-s="restorePlayStore" style="width:100%;margin-top:9px">Restore Google Play Purchase</button>'+
+     '<p class="dcsdim">A Google Play account, active store activation product, and secure verification are required. Pending or cancelled payments never unlock the seller dashboard.</p>')+footer+'</div>';
  if(pending)return '<div class="dcsflow">'+heading+
    card('<div class="dcsstatus dcswaiting"><span class="dcsstatusicon">⏳</span><h3>Payment Request Submitted</h3><p>Your store is <b>not active yet</b>. The administrator will check the transaction and decide whether to approve it.</p><div class="dcsreceipt"><div><span>Status</span><strong>Pending Verification</strong></div><div><span>Method</span><strong>'+h(last.payment_method)+'</strong></div><div><span>Reference</span><strong>'+h(last.transfer_reference)+'</strong></div><div><span>Amount</span><strong>'+money(last.amount_pkr)+'</strong></div></div>'+
    '<p class="dcsdim">Do not pay twice for this request. Once admin approves it, your Store dashboard will unlock.</p><button class="btn" data-s="reload" style="width:100%">↻ Check Approval Status</button></div>')+
@@ -2043,15 +2054,13 @@ function requestPanel(){
   '<div class="dcspay"><div class="dcspaytop"><span>JazzCash transfer</span><strong>'+price+'</strong></div><div class="dcspayline"><span>Account number</span><strong>'+h(settings.jazzcash_number)+'</strong></div><div class="dcspayline"><span>Account holder</span><strong>'+h(settings.jazzcash_account_name)+'</strong></div>'+
   '<button class="btn g" type="button" data-s="copy-number">Copy JazzCash Number</button></div>'+
   '<p class="dcsdim">Open JazzCash on your phone, send '+price+' to this number, and enter the transaction reference shown on your receipt. Submitting a reference does not verify a payment.</p>'+
-  '<form data-f="request"><label>Payment Method</label><select name="payment_method"><option value="jazzcash">JazzCash — manual verification</option>'+
-  (gpay?'<option value="google_pay">Google Pay — pending admin verification</option>':'')+'</select>'+
+  '<form data-f="request"><label>Payment Method</label><select name="payment_method"><option value="jazzcash">JazzCash — manual verification</option></select>'+
   input('transfer_reference','Transaction / Payment Reference (TID)','',true,90)+
   '<label>Payment screenshot *</label><input name="store_payment_receipt" type="file" accept="image/png,image/jpeg,image/webp" required>'+
   '<p class="dcsdim">Upload a clear PNG, JPG or WEBP screenshot (max 5 MB) showing your transaction. It stays private for administrator review.</p>'+
   '<div class="dcs-upload-preview" id="dcs-store-receipt-preview">📷 Screenshot preview will appear here</div>'+
   '<button class="btn" type="submit" style="width:100%;margin-top:16px">Send TID & Screenshot for Approval</button></form>'+
-  (gpay?'<p class="dcsdim">Google Pay gateway: <a href="'+h(settings.google_pay_checkout_url)+'" target="_blank" rel="noopener">Open merchant checkout</a>. Confirmation remains manual.</p>':
-    '<p class="dcsdim">Google Pay is not available until the administrator configures an authorised payment gateway.</p>')+
+  '<p class="dcsdim">Google Play billing for digital store activation is offered only in the Google Play version. JazzCash remains available in this direct-distribution build.</p>'+
   '<div class="dcsnotice">🔒 Your store name, products, categories, automated replies and order dashboard appear <b>only after the administrator approves your request.</b></div>')+
   footer+'</div>';
 }
@@ -2216,7 +2225,8 @@ async function submit(form){
    const reference=val('transfer_reference');
    if(!reference)throw new Error('Enter a transaction reference');
    const method=val('payment_method');
-   if(method==='google_pay'&&!isHttps(settings.google_pay_checkout_url))throw new Error('Google Pay is not configured');
+   if(isGooglePlayBuild())throw new Error('Seller activation in the Google Play app must use Google Play Billing.');
+   if(method!=='jazzcash')throw new Error('Select the JazzCash manual payment option.');
    const file=d.get('store_payment_receipt');
    if(!file||!file.size||file.size>5*1048576||!['image/png','image/jpeg','image/webp'].includes(file.type))
      throw new Error('Attach a clear JPG, PNG or WEBP payment screenshot under 5 MB.');
@@ -2290,6 +2300,14 @@ async function submit(form){
 }
 async function action(button){
  const op=button.dataset.s,id=button.dataset.id;
+ if(op==='buyPlayStore'){
+  if(!me?.id||!isGooglePlayBuild())return message('Google Play store activation is available only in the signed Play Store app.',true);
+  window.DarkChatDevice.buyStoreWithGooglePlay(me.id);return;
+ }
+ if(op==='restorePlayStore'){
+  if(!me?.id||!isGooglePlayBuild())return message('Open the Google Play version and sign in first.',true);
+  window.DarkChatDevice.restoreGooglePlayStore();return;
+ }
  if(['browse','my','cart','orders'].includes(op)){view=op;return render()}
  if(op==='copyShopLink'||op==='shareShopLink'){
   const url=publicSellerLink();
@@ -2385,7 +2403,11 @@ function attachRequestRealtime(){
  requestChannel=sb.channel('dc-store-activation-'+me.id)
  .on('postgres_changes',{event:'UPDATE',schema:'public',table:'dc_store_requests',filter:'user_id=eq.'+me.id},payload=>{
    invalidateStoreCache();
-   if(payload.new?.status==='approved')message('✅ Store approved! Your seller dashboard is now unlocked.');
+   if(payload.new?.status==='approved'){
+    message('✅ Store approved! Your seller dashboard is now unlocked. Banner ads are removed for this seller account.');
+    if(window.DarkChatDevice?.setSellerStoreActive)window.DarkChatDevice.setSellerStoreActive(true);
+    dcRefreshSellerChatLink().catch(()=>{});
+   }
    else if(payload.new?.status==='rejected')message('Your store payment request was rejected.',true);
    if(root())render();
  })
@@ -2553,7 +2575,33 @@ document.addEventListener('change',e=>{
  }
 });
 sb.auth.onAuthStateChange((event,session)=>{
- if(event==='SIGNED_OUT'){storeCacheReady=false;storeCacheUser=null;storeCacheTime=0;invalidateStoreCache();settings=null;stores=[];myStore=null;cart=[];view='browse';buyerOrders=[];singleProductId=null;detailId=null;if(orderChannel){sb.removeChannel(orderChannel);orderChannel=null}if(requestChannel){sb.removeChannel(requestChannel);requestChannel=null}}
+ if(event==='SIGNED_OUT'){if(window.DarkChatDevice?.setSellerStoreActive)window.DarkChatDevice.setSellerStoreActive(false);storeCacheReady=false;storeCacheUser=null;storeCacheTime=0;invalidateStoreCache();settings=null;stores=[];myStore=null;cart=[];view='browse';buyerOrders=[];singleProductId=null;detailId=null;if(orderChannel){sb.removeChannel(orderChannel);orderChannel=null}if(requestChannel){sb.removeChannel(requestChannel);requestChannel=null}}
+});
+// Native Google Play purchases are ALWAYS verified by Supabase + Google before granting access.
+window.addEventListener('darkchat-play-billing',async e=>{
+ const event=e.detail||{};
+ if(event.status==='price'){
+  playBillingPrice=String(event.price||'');
+  if(root()&&view==='my')render();
+  return;
+ }
+ if(event.status==='verify'){
+  if(!me?.id||!event.token)return message('Please sign in and restore your purchase.',true);
+  message('Google Play purchase received. Checking the receipt securely...');
+  try{
+   const {data,error}=await sb.functions.invoke('darkchat-verify-play-store',{body:{purchase_token:event.token}});
+   if(error||!data?.ok)throw new Error(data?.error||error?.message||'Purchase verification is not configured yet.');
+   invalidateStoreCache();await fetchFreshStoreData();
+   await dcRefreshSellerChatLink();
+   message('Your verified Google Play store is active. Banner advertisements are now removed.');
+   view='my';if(root())render();
+  }catch(error){message('Store not activated: '+String(error?.message||error)+'. Use Restore Purchase after configuration is complete.',true)}
+  return;
+ }
+ if(event.status==='pending')message('Payment pending. Store will open only after Google confirms payment.');
+ else if(event.status==='error')message(event.message||'Google Play payment unavailable.',true);
+ else if(event.status==='info')message(event.message||'No previous purchase found.');
+ else if(event.status==='cancelled')message(event.message||'Payment cancelled.');
 });
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&typeof tab!=='undefined'&&tab==='store'&&me&&root())render()});
 })();
