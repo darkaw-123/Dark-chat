@@ -1114,6 +1114,8 @@ function render(){
   dcProfileSellerLink()+
   '<h4 style="margin:26px 0 8px">Notifications</h4><button class="btn g" data-a="notif" style="width:100%">'+esc(nlabel())+'</button><div id="nativePushStatus" class="note" style="margin:12px 0">'+esc(window.DarkChat?.statusText||'Checking Android FCM...')+'</div><button class="btn g" data-a="pushcheck" style="width:100%">Check / Retry Android Push</button>'+
   (window.DarkChatDevice?'<button class="btn g" data-a="pushsettings" style="width:100%;margin-top:10px">Open Android notification settings</button><button class="btn g" data-a="adstatus" style="width:100%;margin-top:10px">Check Real AdMob Banner Status</button>':'')+
+  '<button class="btn g" data-a="requestDeleteAccount" style="width:100%;margin-top:16px">Request account deletion</button>'+
+  '<p class="note" style="margin-top:7px">Delete your account and associated data: submit a verified deletion request without leaving the app. You may also use the deletion page on our website without reinstalling the app.</p>'+
   '<button class="btn g" data-a="out" style="width:100%;margin-top:22px">Log out</button></div>';
  }
 }
@@ -1747,6 +1749,24 @@ const A={
  dcall:()=>{if(call){reliableCallEnd(call.cid,'decline');endCall('missed',false)}},
  xcall:()=>endCall('',true),
  flipcam:()=>flipCallCamera(),
+ requestDeleteAccount:async()=>{
+  if(!me?.id||!sb)return toast('Sign in to request account deletion.',1);
+  if(!confirm('Request deletion of your Dark Chat account and associated data? This is a serious privacy request.'))return;
+  if(!confirm('Confirm that you want to submit an account and data deletion request. Deletion will be processed after review.'))return;
+  try{
+    const {data:existing,error:lookErr}=await sb.from('dc_account_deletion_requests')
+      .select('id,status').eq('user_id',me.id).in('status',['pending','processing']).maybeSingle();
+    if(lookErr)throw lookErr;
+    if(existing)return toast('Your account deletion request is already received.');
+    const {error}=await sb.from('dc_account_deletion_requests')
+      .insert({user_id:me.id});
+    if(error){
+      if(error.code==='23505')return toast('Your deletion request has already been received.');
+      throw error;
+    }
+    toast('Account deletion request received. The team will verify and process it.');
+  }catch(error){toast('Could not send account deletion request: '+String(error.message||error),1)}
+ },
  out:async()=>{
   // Disconnect this phone's FCM token from the current account before switching users.
   // Without this, upsert(fcm_token) can conflict with another account under RLS.
