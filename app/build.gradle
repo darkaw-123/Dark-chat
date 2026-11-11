@@ -13,12 +13,10 @@ def dcReleaseSigningReady = [dcReleaseKeystore, dcReleaseStorePassword, dcReleas
         .every { it != null && !it.trim().isEmpty() }
 
 android {
-    // Keep the existing Java namespace; changing it would require moving every native class.
-    // The Play Store identity is applicationId, which is now unique to this app.
     namespace 'com.darkchat.app'
     compileSdk 36
     defaultConfig {
-        applicationId 'com.darkaw.darkchat'
+        applicationId 'com.darkchat.app'
         minSdk 26
         targetSdk 36
         versionCode 25
