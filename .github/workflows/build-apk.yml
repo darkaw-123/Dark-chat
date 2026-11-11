@@ -33,6 +33,32 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Install and verify new Firebase Android configuration
+        shell: bash
+        env:
+          DARKCHAT_FIREBASE_JSON_B64: ${{ secrets.DARKCHAT_FIREBASE_JSON_B64 }}
+        run: |
+          set -euo pipefail
+          # After the new google-services.json is provided by the owner, the
+          # secret can safely override the committed legacy Firebase config.
+          if [ -n "${DARKCHAT_FIREBASE_JSON_B64:-}" ]; then
+            umask 077
+            printf '%s' "$DARKCHAT_FIREBASE_JSON_B64" | base64 --decode > app/google-services.json
+          fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          config=json.loads(Path('app/google-services.json').read_text())
+          packages=[c.get('client_info',{}).get('android_client_info',{}).get('package_name') for c in config.get('client',[])]
+          required='com.darkaw.darkchat'
+          assert required in packages, (
+              'The Firebase JSON is still for the old app. Please upload the new google-services.json '
+              'to app/google-services.json OR configure GitHub Actions secret DARKCHAT_FIREBASE_JSON_B64. '
+              'Expected package: '+required)
+          assert config.get('project_info',{}).get('project_id')=='dark-chat-31924',(
+              'Use the existing Firebase project dark-chat-31924; a different Firebase project will break existing FCM notifications.')
+          print('Firebase verified for Google Play package',required)
+          PY
       - name: Validate bundled V9 HTML
         run: |
           python3 - <<'PY'
