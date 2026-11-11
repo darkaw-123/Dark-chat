@@ -13,10 +13,12 @@ def dcReleaseSigningReady = [dcReleaseKeystore, dcReleaseStorePassword, dcReleas
         .every { it != null && !it.trim().isEmpty() }
 
 android {
+    // Java/Kotlin classes stay in the old internal namespace to avoid moving native files.
+    // The public Google Play package is applicationId, configured separately below.
     namespace 'com.darkchat.app'
     compileSdk 36
     defaultConfig {
-        applicationId 'com.darkchat.app'
+        applicationId 'com.darkaw.chat'
         minSdk 26
         targetSdk 36
         versionCode 25
