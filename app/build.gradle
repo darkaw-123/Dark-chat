@@ -1,67 +1,24 @@
-plugins {
-    id 'com.android.application'
-    id 'com.google.gms.google-services'
-}
-// A production build must use a stable private signing key.
-// Android signing secrets are injected by the GitHub Actions production workflow,
-// never committed to this public source repository.
-def dcReleaseKeystore = System.getenv('DARKCHAT_RELEASE_KEYSTORE_FILE')
-def dcReleaseStorePassword = System.getenv('DARKCHAT_RELEASE_STORE_PASSWORD')
-def dcReleaseKeyAlias = System.getenv('DARKCHAT_RELEASE_KEY_ALIAS')
-def dcReleaseKeyPassword = System.getenv('DARKCHAT_RELEASE_KEY_PASSWORD')
-def dcReleaseSigningReady = [dcReleaseKeystore, dcReleaseStorePassword, dcReleaseKeyAlias, dcReleaseKeyPassword]
-        .every { it != null && !it.trim().isEmpty() }
-
+plugins { id 'com.android.application' }
 android {
-    // Java/Kotlin classes stay in the old internal namespace to avoid moving native files.
-    // The public Google Play package is applicationId, configured separately below.
-    namespace 'com.darkchat.app'
-    compileSdk 36
+    namespace 'com.darkaw.havelimystery'
+    compileSdk 35
     defaultConfig {
-        applicationId 'com.darkaw.darkchat'
-        minSdk 26
-        targetSdk 36
-        versionCode 26
-        versionName '9.14'
+        applicationId 'com.darkaw.havelimystery'
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+        manifestPlaceholders = [admobAppId:'ca-app-pub-7138311889196067~3028743078']
     }
-    // Only Play-bundled releases use Google Play Billing for digital seller activation.
-    // Direct-sideload APK releases keep the existing JazzCash manual approval workflow.
     buildFeatures { buildConfig true }
-    signingConfigs {
-        production {
-            if (dcReleaseSigningReady) {
-                storeFile file(dcReleaseKeystore)
-                storePassword dcReleaseStorePassword
-                keyAlias dcReleaseKeyAlias
-                keyPassword dcReleaseKeyPassword
-            }
-        }
-    }
     buildTypes {
-        debug {
-            buildConfigField 'boolean', 'PLAY_STORE_BUILD', 'false'
-            // The existing debug APK uses Google's demo ads for safe testing.
-            debuggable true
-        }
-        release {
-            buildConfigField 'boolean', 'PLAY_STORE_BUILD', project.hasProperty('darkChatPlay') ? 'true' : 'false'
-            debuggable false
-            minifyEnabled false
-            if (dcReleaseSigningReady) {
-                signingConfig signingConfigs.production
-            }
-        }
+        debug { manifestPlaceholders = [admobAppId:'ca-app-pub-3940256099942544~3347511713'] }
+        release { minifyEnabled false }
     }
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 dependencies {
-    implementation platform('com.google.firebase:firebase-bom:34.7.0')
-    implementation 'com.google.firebase:firebase-messaging'
-    implementation 'androidx.webkit:webkit:1.14.0'
-    implementation 'com.google.android.gms:play-services-base:18.11.0'
-    implementation 'com.google.android.gms:play-services-ads:25.4.0'
-    implementation 'com.android.billingclient:billing:9.1.0'
+    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'com.google.android.gms:play-services-ads:25.5.0'
+    implementation 'com.google.android.ump:user-messaging-platform:3.1.0'
 }
