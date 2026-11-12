@@ -56,7 +56,7 @@ jobs:
           gradle=Path("app/build.gradle").read_text()
           assert "applicationId 'com.darkaw.darkchat'" in gradle
           assert "versionName '9.14'" in gradle
-          assert "versionCode 25" in gradle
+          assert "versionCode 26" in gradle
           assert "com.android.billingclient:billing:9.1.0" in gradle
           assert "BuildConfig.PLAY_STORE_BUILD" in Path("app/src/main/java/com/darkchat/app/MainActivity.java").read_text()
           assert "darkchat_store_activation" in Path("app/src/main/java/com/darkchat/app/PlayStoreBilling.java").read_text()
