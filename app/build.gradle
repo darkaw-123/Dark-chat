@@ -7,8 +7,8 @@ android {
         buildConfigField 'String', 'PLAY_LICENSE_KEY', '""'
         minSdk 24
         targetSdk 35
-        versionCode 5
-        versionName '1.4'
+        versionCode 6
+        versionName '1.5'
         manifestPlaceholders = [admobAppId:'ca-app-pub-7138311889196067~3028743078']
     }
     buildFeatures { buildConfig true }
