@@ -65,11 +65,25 @@ public final class MainActivity extends Activity {
     private void loadReward(){if(subscriptions==null||!subscriptions.adsAllowed())return;RewardedAd.load(this,BuildConfig.DEBUG?TEST_REWARDED:LIVE_REWARDED,req(),new RewardedAdLoadCallback(){@Override public void onAdLoaded(@NonNull RewardedAd a){if(subscriptions!=null&&subscriptions.adsAllowed())reward=a;}@Override public void onAdFailedToLoad(@NonNull LoadAdError e){reward=null;}});}
     private void loadInterstitial(){if(subscriptions==null||!subscriptions.adsAllowed())return;InterstitialAd.load(this,BuildConfig.DEBUG?TEST_INTERSTITIAL:LIVE_INTERSTITIAL,req(),new InterstitialAdLoadCallback(){@Override public void onAdLoaded(@NonNull InterstitialAd a){if(subscriptions!=null&&subscriptions.adsAllowed())interstitial=a;}@Override public void onAdFailedToLoad(@NonNull LoadAdError e){interstitial=null;}});}
     private void notifyReward(String value){web.evaluateJavascript("window.haveliRewardResult('"+value+"')",null);}
+    private void showInterstitial(boolean announceUnavailable){
+        if(subscriptions==null||!subscriptions.adsAllowed()||!consent.canRequestAds()||interstitial==null){
+            if(announceUnavailable)Toast.makeText(this,"Ad is not available yet. Try again later.",Toast.LENGTH_SHORT).show();
+            if(adsStarted)loadInterstitial();return;
+        }
+        InterstitialAd a=interstitial;interstitial=null;
+        a.setFullScreenContentCallback(new FullScreenContentCallback(){
+            @Override public void onAdDismissedFullScreenContent(){loadInterstitial();}
+            @Override public void onAdFailedToShowFullScreenContent(@NonNull com.google.android.gms.ads.AdError e){loadInterstitial();}
+        });
+        a.show(this);
+    }
     private final class AdsBridge {
+      @JavascriptInterface public boolean isTestAds(){return BuildConfig.DEBUG;}
       @JavascriptInterface public boolean isAdFree(){return subscriptions!=null&&subscriptions.isActive();}
       @JavascriptInterface public void subscription(){runOnUiThread(()->{if(subscriptions!=null)subscriptions.showOptions();});}
       @JavascriptInterface public void reward(){runOnUiThread(()->{if(subscriptions==null||!subscriptions.adsAllowed()||!consent.canRequestAds()||reward==null){notifyReward("unavailable");if(adsStarted)loadReward();return;}RewardedAd a=reward;reward=null;final boolean[] earned={false};a.setFullScreenContentCallback(new FullScreenContentCallback(){@Override public void onAdDismissedFullScreenContent(){loadReward();if(!earned[0])notifyReward("closed");}@Override public void onAdFailedToShowFullScreenContent(@NonNull com.google.android.gms.ads.AdError e){loadReward();notifyReward("unavailable");}});a.show(MainActivity.this,item->{earned[0]=true;notifyReward("earned");});});}
-      @JavascriptInterface public void interstitial(){runOnUiThread(()->{if(subscriptions==null||!subscriptions.adsAllowed()||!consent.canRequestAds()||interstitial==null){Toast.makeText(MainActivity.this,"Test ad is not available yet. Try again.",Toast.LENGTH_SHORT).show();if(adsStarted)loadInterstitial();return;}InterstitialAd a=interstitial;interstitial=null;a.setFullScreenContentCallback(new FullScreenContentCallback(){@Override public void onAdDismissedFullScreenContent(){loadInterstitial();}@Override public void onAdFailedToShowFullScreenContent(@NonNull com.google.android.gms.ads.AdError e){loadInterstitial();}});a.show(MainActivity.this);});}
+      @JavascriptInterface public void interstitial(){runOnUiThread(()->showInterstitial(true));}
+      @JavascriptInterface public void interstitialAtBreak(){runOnUiThread(()->showInterstitial(false));}
       @JavascriptInterface public void privacy(){runOnUiThread(()->UserMessagingPlatform.showPrivacyOptionsForm(MainActivity.this,error->{if(error!=null)Toast.makeText(MainActivity.this,"Privacy options are not available right now.",Toast.LENGTH_SHORT).show();maybeStart();}));}
     }
     @Override protected void onPause(){if(banner!=null)banner.pause();super.onPause();}

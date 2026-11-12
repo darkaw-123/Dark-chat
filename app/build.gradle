@@ -7,14 +7,16 @@ android {
         buildConfigField 'String', 'PLAY_LICENSE_KEY', '""'
         minSdk 24
         targetSdk 35
-        versionCode 8
-        versionName '1.7'
+        versionCode 9
+        versionName '1.8'
         manifestPlaceholders = [admobAppId:'ca-app-pub-7138311889196067~3028743078']
     }
     buildFeatures { buildConfig true }
     buildTypes {
         debug { manifestPlaceholders = [admobAppId:'ca-app-pub-3940256099942544~3347511713'] }
         release { minifyEnabled false }
+        // Locally installable preview with real ad IDs; debug key is not a release key.
+        liveAds { initWith release; debuggable false; signingConfig signingConfigs.debug; matchingFallbacks = ['release'] }
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }

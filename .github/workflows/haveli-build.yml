@@ -22,10 +22,15 @@ jobs:
           gradle-version: '8.9'
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
-      - name: Build test APK
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Build test and live-ad APKs
+        run: gradle --no-daemon :app:assembleDebug :app:assembleLiveAds
       - uses: actions/upload-artifact@v4
         with:
           name: Haveli-Mystery-test-APK
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Haveli-Mystery-live-ads-APK
+          path: app/build/outputs/apk/liveAds/*.apk
           if-no-files-found: error
