@@ -35,7 +35,7 @@ public final class MainActivity extends Activity {
     private static final String LIVE_INTERSTITIAL = "ca-app-pub-7138311889196067/2297969540";
     private static final String LIVE_REWARDED = "ca-app-pub-7138311889196067/5035813523";
     private WebView web; private AdView banner; private RewardedAd reward; private InterstitialAd interstitial;
-    private ConsentInformation consent; private boolean adsStarted=false;
+    private ConsentInformation consent; private boolean adsStarted=false; private SubscriptionManager subscriptions;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().setStatusBarColor(0xff120d0a); getWindow().setNavigationBarColor(0xff120d0a);
@@ -55,20 +55,24 @@ public final class MainActivity extends Activity {
         web.loadUrl("https://appassets.androidplatform.net/assets/index.html");
         consent=UserMessagingPlatform.getConsentInformation(this);
         consent.requestConsentInfoUpdate(this,new ConsentRequestParameters.Builder().build(),()->UserMessagingPlatform.loadAndShowConsentFormIfRequired(this,e->maybeStart()),e->maybeStart());
+        subscriptions=new SubscriptionManager(this,()->runOnUiThread(this::subscriptionChanged));
         maybeStart();
     }
-    private void maybeStart(){if(adsStarted || !consent.canRequestAds())return;adsStarted=true;MobileAds.initialize(this,status->runOnUiThread(()->{loadBanner();loadReward();loadInterstitial();}));}
+    private void subscriptionChanged(){if(subscriptions==null)return;boolean active=subscriptions.isActive();if(active){banner.setVisibility(View.GONE);banner.pause();reward=null;interstitial=null;}else if(subscriptions.adsAllowed()){if(adsStarted){banner.resume();loadBanner();loadReward();loadInterstitial();}else maybeStart();}web.evaluateJavascript("window.haveliSubscriptionChanged && window.haveliSubscriptionChanged("+active+")",null);}
+    private void maybeStart(){if(adsStarted || !consent.canRequestAds() || subscriptions==null || !subscriptions.adsAllowed())return;adsStarted=true;MobileAds.initialize(this,status->runOnUiThread(()->{loadBanner();loadReward();loadInterstitial();}));}
     private AdRequest req(){return new AdRequest.Builder().build();}
-    private void loadBanner(){banner.setAdListener(new AdListener(){@Override public void onAdLoaded(){banner.setVisibility(View.VISIBLE);}@Override public void onAdFailedToLoad(@NonNull LoadAdError e){banner.setVisibility(View.GONE);}});banner.loadAd(req());}
-    private void loadReward(){RewardedAd.load(this,BuildConfig.DEBUG?TEST_REWARDED:LIVE_REWARDED,req(),new RewardedAdLoadCallback(){@Override public void onAdLoaded(@NonNull RewardedAd a){reward=a;}@Override public void onAdFailedToLoad(@NonNull LoadAdError e){reward=null;}});}
-    private void loadInterstitial(){InterstitialAd.load(this,BuildConfig.DEBUG?TEST_INTERSTITIAL:LIVE_INTERSTITIAL,req(),new InterstitialAdLoadCallback(){@Override public void onAdLoaded(@NonNull InterstitialAd a){interstitial=a;}@Override public void onAdFailedToLoad(@NonNull LoadAdError e){interstitial=null;}});}
+    private void loadBanner(){if(subscriptions==null||!subscriptions.adsAllowed())return;banner.setAdListener(new AdListener(){@Override public void onAdLoaded(){if(subscriptions!=null&&subscriptions.adsAllowed())banner.setVisibility(View.VISIBLE);}@Override public void onAdFailedToLoad(@NonNull LoadAdError e){banner.setVisibility(View.GONE);}});banner.loadAd(req());}
+    private void loadReward(){if(subscriptions==null||!subscriptions.adsAllowed())return;RewardedAd.load(this,BuildConfig.DEBUG?TEST_REWARDED:LIVE_REWARDED,req(),new RewardedAdLoadCallback(){@Override public void onAdLoaded(@NonNull RewardedAd a){if(subscriptions!=null&&subscriptions.adsAllowed())reward=a;}@Override public void onAdFailedToLoad(@NonNull LoadAdError e){reward=null;}});}
+    private void loadInterstitial(){if(subscriptions==null||!subscriptions.adsAllowed())return;InterstitialAd.load(this,BuildConfig.DEBUG?TEST_INTERSTITIAL:LIVE_INTERSTITIAL,req(),new InterstitialAdLoadCallback(){@Override public void onAdLoaded(@NonNull InterstitialAd a){if(subscriptions!=null&&subscriptions.adsAllowed())interstitial=a;}@Override public void onAdFailedToLoad(@NonNull LoadAdError e){interstitial=null;}});}
     private void notifyReward(String value){web.evaluateJavascript("window.haveliRewardResult('"+value+"')",null);}
     private final class AdsBridge {
-      @JavascriptInterface public void reward(){runOnUiThread(()->{if(!consent.canRequestAds()||reward==null){notifyReward("unavailable");if(adsStarted)loadReward();return;}RewardedAd a=reward;reward=null;final boolean[] earned={false};a.setFullScreenContentCallback(new FullScreenContentCallback(){@Override public void onAdDismissedFullScreenContent(){loadReward();if(!earned[0])notifyReward("closed");}@Override public void onAdFailedToShowFullScreenContent(@NonNull com.google.android.gms.ads.AdError e){loadReward();notifyReward("unavailable");}});a.show(MainActivity.this,item->{earned[0]=true;notifyReward("earned");});});}
-      @JavascriptInterface public void interstitial(){runOnUiThread(()->{if(!consent.canRequestAds()||interstitial==null){Toast.makeText(MainActivity.this,"Test ad is not available yet. Try again.",Toast.LENGTH_SHORT).show();if(adsStarted)loadInterstitial();return;}InterstitialAd a=interstitial;interstitial=null;a.setFullScreenContentCallback(new FullScreenContentCallback(){@Override public void onAdDismissedFullScreenContent(){loadInterstitial();}@Override public void onAdFailedToShowFullScreenContent(@NonNull com.google.android.gms.ads.AdError e){loadInterstitial();}});a.show(MainActivity.this);});}
+      @JavascriptInterface public boolean isAdFree(){return subscriptions!=null&&subscriptions.isActive();}
+      @JavascriptInterface public void subscription(){runOnUiThread(()->{if(subscriptions!=null)subscriptions.showOptions();});}
+      @JavascriptInterface public void reward(){runOnUiThread(()->{if(subscriptions==null||!subscriptions.adsAllowed()||!consent.canRequestAds()||reward==null){notifyReward("unavailable");if(adsStarted)loadReward();return;}RewardedAd a=reward;reward=null;final boolean[] earned={false};a.setFullScreenContentCallback(new FullScreenContentCallback(){@Override public void onAdDismissedFullScreenContent(){loadReward();if(!earned[0])notifyReward("closed");}@Override public void onAdFailedToShowFullScreenContent(@NonNull com.google.android.gms.ads.AdError e){loadReward();notifyReward("unavailable");}});a.show(MainActivity.this,item->{earned[0]=true;notifyReward("earned");});});}
+      @JavascriptInterface public void interstitial(){runOnUiThread(()->{if(subscriptions==null||!subscriptions.adsAllowed()||!consent.canRequestAds()||interstitial==null){Toast.makeText(MainActivity.this,"Test ad is not available yet. Try again.",Toast.LENGTH_SHORT).show();if(adsStarted)loadInterstitial();return;}InterstitialAd a=interstitial;interstitial=null;a.setFullScreenContentCallback(new FullScreenContentCallback(){@Override public void onAdDismissedFullScreenContent(){loadInterstitial();}@Override public void onAdFailedToShowFullScreenContent(@NonNull com.google.android.gms.ads.AdError e){loadInterstitial();}});a.show(MainActivity.this);});}
       @JavascriptInterface public void privacy(){runOnUiThread(()->UserMessagingPlatform.showPrivacyOptionsForm(MainActivity.this,error->{if(error!=null)Toast.makeText(MainActivity.this,"Privacy options are not available right now.",Toast.LENGTH_SHORT).show();maybeStart();}));}
     }
     @Override protected void onPause(){if(banner!=null)banner.pause();super.onPause();}
-    @Override protected void onResume(){super.onResume();if(banner!=null)banner.resume();}
-    @Override protected void onDestroy(){if(banner!=null)banner.destroy();if(web!=null){web.removeJavascriptInterface("HaveliAds");web.destroy();}super.onDestroy();}
+    @Override protected void onResume(){super.onResume();if(banner!=null&&subscriptions!=null&&subscriptions.adsAllowed())banner.resume();if(subscriptions!=null)subscriptions.refresh();}
+    @Override protected void onDestroy(){if(subscriptions!=null)subscriptions.close();if(banner!=null)banner.destroy();if(web!=null){web.removeJavascriptInterface("HaveliAds");web.destroy();}super.onDestroy();}
 }
