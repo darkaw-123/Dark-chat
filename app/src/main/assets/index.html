@@ -182,7 +182,7 @@ function renderGenerated(){let n=game.current,g=generatedState(),c=getChapter(n)
 <script>
 let pendingHint=null;
 function makeHintRequest(){let w=currentWorld();return {level:game.current,key:hintKey(),text:currentHint(),mode:game.difficulty,world:w?{id:w.id,level:w.level,mode:game.difficulty}:null}}
-function grantHint(request){game.hintCounts[request.key]=(game.hintCounts[request.key]||0)+1;recordWorldHint(request.world);game.hintsUsed=(game.hintsUsed||0)+1;save();refreshWallet();show('Hint unlocked',request.text)}
+function grantHint(request){game.hintCounts[request.key]=(game.hintCounts[request.key]||0)+1;recordWorldHint(request.world);game.hintsUsed=(game.hintsUsed||0)+1;save();refreshWallet();render();show('Hint unlocked',request.text)}
 function takeHint(){
  if(game.difficulty==='hard'){show('Hints unavailable','Hard mode has no hints. Change difficulty from the home screen if you need help.');return}
  if(pendingHint){show('Ad in progress','Please wait for the current ad to finish.');return}
