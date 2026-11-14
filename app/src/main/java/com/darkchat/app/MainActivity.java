@@ -6,6 +6,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.widget.TextView;
 import android.view.Gravity;
 import android.view.WindowManager;
@@ -87,6 +88,7 @@ public final class MainActivity extends Activity {
         bannerBox.setOrientation(LinearLayout.VERTICAL);
         bannerBox.setGravity(Gravity.CENTER_HORIZONTAL);
         bannerBox.setBackgroundColor(0xFF0B0A14);
+        bannerBox.setVisibility(View.GONE);
         bannerStatus=new TextView(this);
         bannerStatus.setTextSize(11);
         bannerStatus.setTextColor(0xFFD2C5ED);
@@ -129,12 +131,16 @@ public final class MainActivity extends Activity {
                 lastAdStatus=issue+(error.getCode()==3
                     ?" (No fill: Google did not return an ad. Check AdMob app readiness, policy and availability.)":"");
                 Log.w("DarkChatAds",issue+" | "+error.getDomain());
-                if(adView!=null)adView.setVisibility(View.GONE);
+                // An eligible banner must remain visible for AdMob's configured
+                // automatic refresh to run after a no-fill response.
+                if(adView!=null)adView.setVisibility(bannerEligibility==1?View.VISIBLE:View.GONE);
+                if(bannerBox!=null)bannerBox.setVisibility(bannerEligibility==1?View.VISIBLE:View.GONE);
                 if(bannerIsDebug&&bannerStatus!=null){
-                    bannerStatus.setText(issue+" · Tap to retry");
-                    bannerStatus.setVisibility(View.VISIBLE);
-                }else if(bannerBox!=null)bannerBox.setVisibility(View.GONE);
-                int seconds=Math.min(180,30*Math.min(bannerFailures,6));
+                    bannerStatus.setText(issue+" · Retrying automatically");
+                    bannerStatus.setVisibility(bannerEligibility==1?View.VISIBLE:View.GONE);
+                }
+                // Bounded fallback when automatic refresh is disabled in AdMob.
+                int seconds=Math.min(180,60*Math.min(bannerFailures,3));
                 bannerHandler.removeCallbacks(bannerRetry);
                 if(bannerEligibility==1&&bannerForeground)bannerHandler.postDelayed(bannerRetry,seconds*1000L);
             }
@@ -247,18 +253,25 @@ public final class MainActivity extends Activity {
             if(bannerBox!=null)bannerBox.setVisibility(View.GONE);
             return;
         }
-        if(bannerLoaded&&adView!=null){
-            adView.setVisibility(View.VISIBLE);
-            if(bannerBox!=null)bannerBox.setVisibility(View.VISIBLE);
-        } else requestBanner(false);
+        // Reserve the ad slot for an eligible user even before an ad loads.
+        // AdMob refreshes only a visible banner.
+        if(adView!=null)adView.setVisibility(View.VISIBLE);
+        if(bannerBox!=null)bannerBox.setVisibility(View.VISIBLE);
+        if(!bannerLoaded)requestBanner(false);
     }
 
     private void requestBanner(boolean force){
         if(!bannerReady||adView==null||isFinishing()||!bannerForeground||bannerEligibility!=1)return;
-        long now=System.currentTimeMillis();
-        if(!force&&now-lastBannerLoadMs<25000L){
+        // Avoid overlapping an SDK-managed refresh, and keep retries bounded.
+        if(adView.isLoading()){
             bannerHandler.removeCallbacks(bannerRetry);
-            bannerHandler.postDelayed(bannerRetry,25000L-(now-lastBannerLoadMs));
+            bannerHandler.postDelayed(bannerRetry,60000L);
+            return;
+        }
+        long now=SystemClock.elapsedRealtime();
+        if(!force&&lastBannerLoadMs>0L&&now-lastBannerLoadMs<60000L){
+            bannerHandler.removeCallbacks(bannerRetry);
+            bannerHandler.postDelayed(bannerRetry,60000L-(now-lastBannerLoadMs));
             return;
         }
         lastBannerLoadMs=now;
@@ -269,6 +282,7 @@ public final class MainActivity extends Activity {
             bannerStatus.setVisibility(View.VISIBLE);
         }
         if(bannerBox!=null)bannerBox.setVisibility(View.VISIBLE);
+        adView.setVisibility(View.VISIBLE);
         try{
             adView.loadAd(new AdRequest.Builder().build());
         }catch(Exception e){
@@ -279,7 +293,7 @@ public final class MainActivity extends Activity {
                 bannerStatus.setText("Ad request error: "+e.getClass().getSimpleName()+" · Tap to retry");
                 bannerStatus.setVisibility(View.VISIBLE);
             }
-            if(bannerEligibility==1&&bannerForeground)bannerHandler.postDelayed(bannerRetry,45000L);
+            if(bannerEligibility==1&&bannerForeground)bannerHandler.postDelayed(bannerRetry,60000L);
         }
     }
 
