@@ -46,7 +46,7 @@ public final class MainActivity extends Activity {
     private AdView adView;
     private LinearLayout bannerBox;
     private TextView bannerStatus;
-    private boolean bannerLoaded=false, bannerIsDebug=false, bannerReady=false;
+    private boolean bannerLoaded=false, bannerIsDebug=false, bannerReady=false, bannerForeground=false;
     // 0 = checking account, 1 = ads allowed, 2 = active seller (ad-free).
     private int bannerEligibility=0;
     private volatile String lastAdStatus="AdMob not initialized yet";
@@ -136,7 +136,7 @@ public final class MainActivity extends Activity {
                 }else if(bannerBox!=null)bannerBox.setVisibility(View.GONE);
                 int seconds=Math.min(180,30*Math.min(bannerFailures,6));
                 bannerHandler.removeCallbacks(bannerRetry);
-                if(bannerEligibility==1)bannerHandler.postDelayed(bannerRetry,seconds*1000L);
+                if(bannerEligibility==1&&bannerForeground)bannerHandler.postDelayed(bannerRetry,seconds*1000L);
             }
             @Override public void onAdImpression() {
                 lastAdStatus=(bannerIsDebug?"Test":"Real")+" banner impression recorded by Google";
@@ -254,7 +254,7 @@ public final class MainActivity extends Activity {
     }
 
     private void requestBanner(boolean force){
-        if(!bannerReady||adView==null||isFinishing()||bannerEligibility!=1)return;
+        if(!bannerReady||adView==null||isFinishing()||!bannerForeground||bannerEligibility!=1)return;
         long now=System.currentTimeMillis();
         if(!force&&now-lastBannerLoadMs<25000L){
             bannerHandler.removeCallbacks(bannerRetry);
@@ -279,7 +279,7 @@ public final class MainActivity extends Activity {
                 bannerStatus.setText("Ad request error: "+e.getClass().getSimpleName()+" · Tap to retry");
                 bannerStatus.setVisibility(View.VISIBLE);
             }
-            if(bannerEligibility==1)bannerHandler.postDelayed(bannerRetry,45000L);
+            if(bannerEligibility==1&&bannerForeground)bannerHandler.postDelayed(bannerRetry,45000L);
         }
     }
 
@@ -464,14 +464,19 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        bannerForeground=true;
         if (adView != null) adView.resume();
-        if(pageLoaded&&webView!=null)webView.evaluateJavascript("window.dcRefreshAdEligibility && window.dcRefreshAdEligibility()",null);
-        if(bannerReady&&!bannerLoaded)requestBanner(false);
+        if(pageLoaded&&webView!=null){
+            setBannerEligibility(0);
+            webView.evaluateJavascript("window.dcRefreshAdEligibility && window.dcRefreshAdEligibility()",null);
+        } else if(bannerReady&&!bannerLoaded)requestBanner(false);
         active = this;
         if (pageLoaded) { sendSavedToken(); checkFirebaseToken(); }
     }
 
     @Override protected void onPause() {
+        bannerForeground=false;
+        bannerHandler.removeCallbacks(bannerRetry);
         if (adView != null) adView.pause();
         if (active == this) active = null;
         super.onPause();

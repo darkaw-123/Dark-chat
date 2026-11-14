@@ -101,7 +101,7 @@ jobs:
               assert check in java or check in manifest, check
           for check in ['onNewToken(', 'onMessageReceived(', 'incoming_call', 'IMPORTANCE_HIGH', 'showRegularMessage']:
               assert check in service,check
-          for check in ["FCM token logout cleanup", "pushsettings:", "notification_blocked", "notification_enabled", "device_push_tokens"]:
+          for check in ["FCM token logout cleanup", "notification_blocked", "notification_enabled", "device_push_tokens"]:
               assert check in html,check
           assert "versionName '9.14'" in Path('app/build.gradle').read_text()
           print('Notification permission, FCM, call alert and account-switch regression checks passed.')
@@ -114,8 +114,8 @@ jobs:
           html=Path('app/src/main/assets/index.html').read_text()
           checks=['ca-app-pub-7138311889196067/3355094444', 'getCurrentOrientationAnchoredAdaptiveBannerAdSize', 'lastAdStatus', 'public String adStatus()', 'public void retryAd()', 'onAdFailedToLoad']
           for name in checks: assert name in java, name
-          assert 'data-a="adstatus"' in html and 'adretry:' in html
-          assert 'versionCode 26' in Path('app/build.gradle').read_text()
+          assert 'data-a="adstatus"' not in html and 'data-a="pushcheck"' not in html and 'data-a="pushsettings"' not in html
+          assert 'versionCode 27' in Path('app/build.gradle').read_text()
           print('Real AdMob unit, diagnostics and V9.14 version confirmed')
           PY
       - name: Validate Android app label and secure screen-capture flag
