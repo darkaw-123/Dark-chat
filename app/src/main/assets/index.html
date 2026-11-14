@@ -578,6 +578,25 @@ function dcBuildSellerChatLink(username,site){
 function dcOwnSellerChatLink(){
  return dcSellerHasShop&&prof?dcBuildSellerChatLink(prof.username,dcSellerShareOrigin):'';
 }
+let dcAdCheckGeneration=0;
+function dcSetAdEligibility(state){try{window.DarkChatDevice?.setAdEligibility(state)}catch(_){}}
+async function dcRefreshAdEligibility(){
+ const generation=++dcAdCheckGeneration, userId=me?.id;
+ if(!sb||!userId){dcSetAdEligibility(1);return;}
+ // Keep the banner hidden until this account's active-store state is known.
+ dcSetAdEligibility(0);
+ try{
+  const result=await sb.from('dc_stores').select('active').eq('owner_id',userId).maybeSingle();
+  if(generation!==dcAdCheckGeneration||me?.id!==userId)return;
+  if(result.error)throw result.error;
+  dcSetAdEligibility(result.data?.active===true?2:1);
+ }catch(error){
+  console.warn('Could not check seller ad eligibility',error);
+  if(generation===dcAdCheckGeneration&&me?.id===userId)
+   setTimeout(()=>{if(me?.id===userId&&generation===dcAdCheckGeneration)dcRefreshAdEligibility()},30000);
+ }
+}
+window.dcRefreshAdEligibility=dcRefreshAdEligibility;
 async function dcRefreshSellerChatLink(){
  if(!sb||!me||!prof)return;
  try{
@@ -914,11 +933,11 @@ $('#af').onsubmit=async e=>{e.preventDefault();if(busy)return;
  busy=false;$('#ab').disabled=false;setMode(mode);
 };
 if(sb)sb.auth.onAuthStateChange((ev,s)=>{
- if(s&&s.user&&!booted){booted=true;me=s.user;setTimeout(boot,0)}
- if(ev==='SIGNED_OUT'){teardown();booted=false;me=null;$('#app').hidden=true;$('#boot').hidden=true;$('#auth').hidden=false}
+ if(s&&s.user&&!booted){booted=true;me=s.user;dcSetAdEligibility(0);setTimeout(()=>{dcRefreshAdEligibility();boot()},0)}
+ if(ev==='SIGNED_OUT'){dcAdCheckGeneration++;teardown();dcSetAdEligibility(1);booted=false;me=null;$('#app').hidden=true;$('#boot').hidden=true;$('#auth').hidden=false}
  if(s&&s.access_token&&sb.realtime)sb.realtime.setAuth(s.access_token);
 });
-if(sb)sb.auth.getSession().then(({data})=>{if(!data.session){$('#boot').hidden=true;$('#auth').hidden=false}}).catch(()=>{$('#boot').hidden=true;$('#auth').hidden=false});
+if(sb)sb.auth.getSession().then(({data})=>{if(!data.session){dcSetAdEligibility(1);$('#boot').hidden=true;$('#auth').hidden=false}}).catch(()=>{$('#boot').hidden=true;$('#auth').hidden=false});
 
 /* ---------- boot ---------- */
 async function boot(){
@@ -1317,6 +1336,7 @@ function subscribe(){
  });
 }
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&me&&booted){
+ dcRefreshAdEligibility();
  syncDirectDeliveries();
  if(cur&&conv(cur)?.kind==='direct')markDirectRead(cur);
  loadGroupInvites().then(()=>{if(tab==='groups')render()}).catch(()=>{});
@@ -1991,7 +2011,7 @@ async function fetchFreshStoreData(){
  settings=ss.data||{store_price_pkr:1500,jazzcash_number:'03067008420',jazzcash_account_name:'Abdul Waheed'};
  stores=st.data||[];products=pr.data||[];requests=req.data||[];
  myStore=stores.find(x=>x.owner_id===me.id)||null;
- dcSellerHasShop=!!myStore?.active;dcSellerShareOrigin=dcSafeShareOrigin(settings?.share_site_url)||DC_DEFAULT_SHARE_SITE;
+ dcSellerHasShop=!!myStore?.active;dcSetAdEligibility(dcSellerHasShop?2:1);dcSellerShareOrigin=dcSafeShareOrigin(settings?.share_site_url)||DC_DEFAULT_SHARE_SITE;
  buyerOrders=bought.data||[];
  cats=[];rules=[];orders=[];
  if(myStore){
