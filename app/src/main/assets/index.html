@@ -578,7 +578,7 @@ function dcBuildSellerChatLink(username,site){
 function dcOwnSellerChatLink(){
  return dcSellerHasShop&&prof?dcBuildSellerChatLink(prof.username,dcSellerShareOrigin):'';
 }
-let dcAdCheckGeneration=0;
+let dcAdCheckGeneration=0,dcAdWatch=null;
 function dcSetAdEligibility(state){try{window.DarkChatDevice?.setAdEligibility(state)}catch(_){}}
 async function dcRefreshAdEligibility(){
  const generation=++dcAdCheckGeneration, userId=me?.id;
@@ -597,6 +597,14 @@ async function dcRefreshAdEligibility(){
  }
 }
 window.dcRefreshAdEligibility=dcRefreshAdEligibility;
+function dcStartAdEligibilityWatch(){
+ if(!me?.id||dcAdWatch)return;
+ const userId=me.id;
+ dcAdWatch=sb.channel('dc-ad-eligibility-'+userId)
+  .on('postgres_changes',{event:'UPDATE',schema:'public',table:'dc_store_requests',filter:'user_id=eq.'+userId},()=>{
+   if(me?.id===userId)dcRefreshAdEligibility();
+  }).subscribe();
+}
 async function dcRefreshSellerChatLink(){
  if(!sb||!me||!prof)return;
  try{
@@ -949,6 +957,7 @@ async function boot(){
   await Promise.all([loadContactAliases(),loadBlockedUsers(),loadConvs(),loadHiddenChats(),loadStatus(),loadAnns(),loadLogs(),loadGroupInvites()]);
   await checkNewMessagesForHiddenChats();
   await dcRefreshSellerChatLink();
+  dcStartAdEligibilityWatch();
   $('#boot').hidden=true;$('#app').hidden=false;
    buildNav();render();subscribe();listenCalls();syncDirectDeliveries();
    // Track buyer order confirmations even while they are chatting, not browsing Store.
@@ -965,6 +974,7 @@ async function boot(){
  }
 }
  function teardown(){
+  if(dcAdWatch){try{sb.removeChannel(dcAdWatch)}catch(_){}dcAdWatch=null}
   window.DCStore?.stopOrders?.();
  try{if(db)sb.removeChannel(db)}catch(_){}
  db=null;
