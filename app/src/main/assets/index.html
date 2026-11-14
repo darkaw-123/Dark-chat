@@ -578,36 +578,6 @@ function dcBuildSellerChatLink(username,site){
 function dcOwnSellerChatLink(){
  return dcSellerHasShop&&prof?dcBuildSellerChatLink(prof.username,dcSellerShareOrigin):'';
 }
-let dcAdCheckGeneration=0,dcAdWatch=null;
-function dcSetAdEligibility(state){try{window.DarkChatDevice?.setAdEligibility(state)}catch(_){}}
-async function dcRefreshAdEligibility(){
- const generation=++dcAdCheckGeneration, userId=me?.id;
- if(!sb||!userId){dcSetAdEligibility(1);return;}
- // Do not display ads until this account's active-store status is verified.
- dcSetAdEligibility(0);
- let timeoutId;
- try{
-  const query=sb.from('dc_stores').select('active').eq('owner_id',userId).maybeSingle();
-  const timeout=new Promise((_,reject)=>{timeoutId=setTimeout(()=>reject(new Error('Store status request timed out')),12000)});
-  const result=await Promise.race([query,timeout]);
-  if(generation!==dcAdCheckGeneration||me?.id!==userId)return;
-  if(result.error)throw result.error;
-  dcSetAdEligibility(result.data?.active===true?2:1);
- }catch(error){
-  console.warn('Could not check seller ad eligibility',error);
-  if(generation===dcAdCheckGeneration&&me?.id===userId)
-   setTimeout(()=>{if(me?.id===userId&&generation===dcAdCheckGeneration)dcRefreshAdEligibility()},20000);
- }finally{clearTimeout(timeoutId)}
-}
-window.dcRefreshAdEligibility=dcRefreshAdEligibility;
-function dcStartAdEligibilityWatch(){
- if(!me?.id||dcAdWatch)return;
- const userId=me.id;
- dcAdWatch=sb.channel('dc-ad-eligibility-'+userId)
-  .on('postgres_changes',{event:'UPDATE',schema:'public',table:'dc_store_requests',filter:'user_id=eq.'+userId},()=>{
-   if(me?.id===userId)dcRefreshAdEligibility();
-  }).subscribe();
-}
 async function dcRefreshSellerChatLink(){
  if(!sb||!me||!prof)return;
  try{
@@ -944,11 +914,11 @@ $('#af').onsubmit=async e=>{e.preventDefault();if(busy)return;
  busy=false;$('#ab').disabled=false;setMode(mode);
 };
 if(sb)sb.auth.onAuthStateChange((ev,s)=>{
- if(s&&s.user&&!booted){booted=true;me=s.user;dcSetAdEligibility(0);setTimeout(()=>{dcRefreshAdEligibility();boot()},0)}
- if(ev==='SIGNED_OUT'){dcAdCheckGeneration++;teardown();dcSetAdEligibility(1);booted=false;me=null;$('#app').hidden=true;$('#boot').hidden=true;$('#auth').hidden=false}
+ if(s&&s.user&&!booted){booted=true;me=s.user;setTimeout(boot,0)}
+ if(ev==='SIGNED_OUT'){teardown();booted=false;me=null;$('#app').hidden=true;$('#boot').hidden=true;$('#auth').hidden=false}
  if(s&&s.access_token&&sb.realtime)sb.realtime.setAuth(s.access_token);
 });
-if(sb)sb.auth.getSession().then(({data})=>{if(!data.session){dcSetAdEligibility(1);$('#boot').hidden=true;$('#auth').hidden=false}}).catch(()=>{$('#boot').hidden=true;$('#auth').hidden=false});
+if(sb)sb.auth.getSession().then(({data})=>{if(!data.session){$('#boot').hidden=true;$('#auth').hidden=false}}).catch(()=>{$('#boot').hidden=true;$('#auth').hidden=false});
 
 /* ---------- boot ---------- */
 async function boot(){
@@ -960,7 +930,6 @@ async function boot(){
   await Promise.all([loadContactAliases(),loadBlockedUsers(),loadConvs(),loadHiddenChats(),loadStatus(),loadAnns(),loadLogs(),loadGroupInvites()]);
   await checkNewMessagesForHiddenChats();
   await dcRefreshSellerChatLink();
-  dcStartAdEligibilityWatch();
   $('#boot').hidden=true;$('#app').hidden=false;
    buildNav();render();subscribe();listenCalls();syncDirectDeliveries();
    // Track buyer order confirmations even while they are chatting, not browsing Store.
@@ -977,7 +946,6 @@ async function boot(){
  }
 }
  function teardown(){
-  if(dcAdWatch){try{sb.removeChannel(dcAdWatch)}catch(_){}dcAdWatch=null}
   window.DCStore?.stopOrders?.();
  try{if(db)sb.removeChannel(db)}catch(_){}
  db=null;
@@ -1348,7 +1316,6 @@ function subscribe(){
  });
 }
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&me&&booted){
- dcRefreshAdEligibility();
  syncDirectDeliveries();
  if(cur&&conv(cur)?.kind==='direct')markDirectRead(cur);
  loadGroupInvites().then(()=>{if(tab==='groups')render()}).catch(()=>{});
@@ -1930,7 +1897,7 @@ window.addEventListener('darkchat-native-push-status',e=>{
 });
 window.addEventListener('focus',()=>{if(me&&window.DarkChat?._t&&window.DarkChat._registeredUser!==me.id)window.DarkChat.registerPushToken(window.DarkChat._t)});
 
-window.addEventListener('online',()=>{if(me&&booted){dcRefreshAdEligibility();syncDirectDeliveries();if(cur&&conv(cur)?.kind==='direct')markDirectRead(cur);if(!db)subscribe();loadConvs().then(()=>{render();listenCalls();checkPendingCall()}).catch(()=>{});}});
+window.addEventListener('online',()=>{if(me&&booted){syncDirectDeliveries();if(cur&&conv(cur)?.kind==='direct')markDirectRead(cur);if(!db)subscribe();loadConvs().then(()=>{render();listenCalls();checkPendingCall()}).catch(()=>{});}});
 
 /* Single-file mode: external service worker intentionally not registered. */
 </script>
@@ -2006,7 +1973,7 @@ async function fetchFreshStoreData(){
  settings=ss.data||{store_price_pkr:1500,jazzcash_number:'03067008420',jazzcash_account_name:'Abdul Waheed'};
  stores=st.data||[];products=pr.data||[];requests=req.data||[];
  myStore=stores.find(x=>x.owner_id===me.id)||null;
- dcSellerHasShop=!!myStore?.active;dcSetAdEligibility(dcSellerHasShop?2:1);dcSellerShareOrigin=dcSafeShareOrigin(settings?.share_site_url)||DC_DEFAULT_SHARE_SITE;
+ dcSellerHasShop=!!myStore?.active;dcSellerShareOrigin=dcSafeShareOrigin(settings?.share_site_url)||DC_DEFAULT_SHARE_SITE;
  buyerOrders=bought.data||[];
  cats=[];rules=[];orders=[];
  if(myStore){

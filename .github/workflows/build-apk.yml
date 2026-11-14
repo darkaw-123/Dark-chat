@@ -115,8 +115,10 @@ jobs:
           checks=['ca-app-pub-7138311889196067/3355094444', 'getCurrentOrientationAnchoredAdaptiveBannerAdSize', 'lastAdStatus', 'public String adStatus()', 'public void retryAd()', 'onAdFailedToLoad']
           for name in checks: assert name in java, name
           assert 'data-a="adstatus"' not in html and 'data-a="pushcheck"' not in html and 'data-a="pushsettings"' not in html
-          assert 'versionCode 28' in Path('app/build.gradle').read_text()
+          assert 'versionCode 29' in Path('app/build.gradle').read_text()
           assert 'adView.isLoading()' in java and 'SystemClock.elapsedRealtime()' in java
+          assert 'bannerEligibility' not in java and 'dcSetAdEligibility' not in html
+          assert "applicationId 'com.darkaw.darkchat'" in Path('app/build.gradle').read_text()
           print('Live AdMob banner retry and V9.14 version confirmed')
           PY
       - name: Validate Android app label and secure screen-capture flag
