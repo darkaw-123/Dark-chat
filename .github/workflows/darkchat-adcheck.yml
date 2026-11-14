@@ -27,3 +27,23 @@ jobs:
           name: Dark_Chat_Google_Test_Ad_APK
           path: diagnostics/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Enable Android emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run Google test banner on Android emulator
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: |
+            adb install diagnostics/app/build/outputs/apk/debug/app-debug.apk
+            adb shell am start -n com.darkaw.darkchat.adcheck/.MainActivity
+            sleep 60
+            adb shell uiautomator dump /sdcard/adcheck.xml
+            adb shell cat /sdcard/adcheck.xml > /tmp/adcheck.xml
+            python3 -c "import xml.etree.ElementTree as E; r=E.parse('/tmp/adcheck.xml'); print('SCREEN TEXT:', ' | '.join(n.get('text','') for n in r.iter() if n.get('text')))"
+            grep -q 'SUCCESS: Google test ad loaded' /tmp/adcheck.xml
