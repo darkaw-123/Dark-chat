@@ -22,6 +22,8 @@ jobs:
           gradle-version: '8.11.1'
       - name: Build isolated test-only APK
         run: gradle -p diagnostics :app:assembleDebug --no-daemon --stacktrace
+      - name: Build real Dark Chat in test-ad mode
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: Dark_Chat_Google_Test_Ad_APK
@@ -47,3 +49,10 @@ jobs:
             adb shell cat /sdcard/adcheck.xml > /tmp/adcheck.xml
             python3 -c "import xml.etree.ElementTree as E; r=E.parse('/tmp/adcheck.xml'); print('SCREEN TEXT:', ' | '.join(n.get('text','') for n in r.iter() if n.get('text')))"
             grep -q 'SUCCESS: Google test ad loaded' /tmp/adcheck.xml
+            adb install app/build/outputs/apk/debug/app-debug.apk
+            adb logcat -c
+            adb shell monkey -p com.darkaw.darkchat -c android.intent.category.LAUNCHER 1
+            sleep 60
+            adb logcat -d -s DarkChatAds:I > /tmp/darkchat-ads.log
+            cat /tmp/darkchat-ads.log
+            grep -q 'Google TEST banner loaded successfully' /tmp/darkchat-ads.log
