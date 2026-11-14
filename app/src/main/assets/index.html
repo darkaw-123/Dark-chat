@@ -1894,7 +1894,7 @@ window.DarkChat={
   setAndroidPushStatus('FCM token received. Registering with Supabase...');
   try{
    const {data,error}=await sb.from('device_push_tokens').upsert({
-    user_id:me.id,fcm_token:t,platform:'android',package_name:'com.darkchat.app',
+    user_id:me.id,fcm_token:t,platform:'android',package_name:'com.darkaw.darkchat',
     last_seen_at:new Date().toISOString()
    },{onConflict:'fcm_token'}).select('id,user_id').single();
    if(error)throw error;
