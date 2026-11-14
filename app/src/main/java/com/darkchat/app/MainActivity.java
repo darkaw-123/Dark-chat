@@ -155,6 +155,7 @@ public final class MainActivity extends Activity {
         new Thread(() -> MobileAds.initialize(this,status->
             runOnUiThread(() -> {
                 bannerReady=true;
+                if(bannerIsDebug)Log.i("DarkChatAds","DEBUG SDK initialized");
                 requestBanner(true);
             }))).start();
         webView.getSettings().setJavaScriptEnabled(true);
@@ -196,6 +197,10 @@ public final class MainActivity extends Activity {
             }
             @Override public void onPageFinished(WebView view, String url) {
                 pageLoaded = true;
+                if(bannerIsDebug){
+                    Log.i("DarkChatAds","DEBUG WebView page finished");
+                    view.evaluateJavascript("JSON.stringify({lib:!!window.supabase,client:typeof sb!=='undefined'&&!!sb,user:typeof me!=='undefined'&&!!me})",v->Log.i("DarkChatAds","DEBUG JS "+v));
+                }
                 deliverPendingCallIntent();
                 deliverPendingSeller();
                 sendSavedToken();
@@ -246,6 +251,7 @@ public final class MainActivity extends Activity {
 
 
     private void setBannerEligibility(int state) {
+        if(bannerIsDebug)Log.i("DarkChatAds","DEBUG eligibility="+state+" ready="+bannerReady+" foreground="+bannerForeground);
         bannerEligibility=(state==1||state==2)?state:0;
         bannerHandler.removeCallbacks(bannerRetry);
         if(bannerEligibility!=1){
@@ -261,6 +267,7 @@ public final class MainActivity extends Activity {
     }
 
     private void requestBanner(boolean force){
+        if(bannerIsDebug)Log.i("DarkChatAds","DEBUG request eligibility="+bannerEligibility+" ready="+bannerReady+" foreground="+bannerForeground+" loaded="+bannerLoaded);
         if(!bannerReady||adView==null||isFinishing()||!bannerForeground||bannerEligibility!=1)return;
         // Avoid overlapping an SDK-managed refresh, and keep retries bounded.
         if(adView.isLoading()){
