@@ -1,4 +1,4 @@
-name: Signal City release bundle
+name: Signal City release APK and AAB
 on:
   push:
     branches: [signal-city-apk-build]
@@ -20,11 +20,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Build unsigned release AAB
+      - name: Build release APK and AAB
         working-directory: signal-city
-        run: gradle :app:bundleRelease --no-daemon --stacktrace
+        run: gradle :app:assembleRelease :app:bundleRelease --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         with:
-          name: Signal_City_Unsigned_AAB
-          path: signal-city/app/build/outputs/bundle/release/*.aab
+          name: Signal_City_Unsigned_Release_Files
+          path: |
+            signal-city/app/build/outputs/apk/release/*-unsigned.apk
+            signal-city/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error

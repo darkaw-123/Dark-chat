@@ -6,6 +6,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
@@ -16,6 +17,7 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import androidx.webkit.WebViewAssetLoader;
 import com.google.android.gms.ads.AdError;
+import com.google.android.gms.ads.AdListener;
 import com.google.android.gms.ads.AdRequest;
 import com.google.android.gms.ads.AdSize;
 import com.google.android.gms.ads.AdView;
@@ -36,9 +38,15 @@ public class MainActivity extends Activity {
     private RewardedAd rewarded;
     private ConsentInformation consent;
     private Button privacy;
-    private boolean adsInitialized, loading, displaying;
+    private boolean adsInitialized, loading, displaying, foreground;
+    private int bannerRetryCount;
     private String pendingId;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable retryBanner = () -> {
+        if (foreground && adsInitialized && consent.canRequestAds() && banner != null) {
+            banner.loadAd(new AdRequest.Builder().build());
+        }
+    };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -72,6 +80,20 @@ public class MainActivity extends Activity {
         banner = new AdView(this);
         banner.setAdSize(AdSize.BANNER);
         banner.setAdUnitId(BuildConfig.BANNER_AD_UNIT);
+        banner.setAdListener(new AdListener() {
+            @Override public void onAdLoaded() {
+                bannerRetryCount = 0;
+                handler.removeCallbacks(retryBanner);
+            }
+            @Override public void onAdFailedToLoad(LoadAdError error) {
+                Log.w("SignalCityAds", "Banner load failed: " + error.getCode() + " " + error.getMessage());
+                handler.removeCallbacks(retryBanner);
+                if (foreground && bannerRetryCount < 3) {
+                    long delay = 60000L << bannerRetryCount++;
+                    handler.postDelayed(retryBanner, delay);
+                }
+            }
+        });
         root.addView(banner, new LinearLayout.LayoutParams(-1, -2));
         setContentView(root);
         game.loadUrl(GAME_URL);
@@ -98,11 +120,15 @@ public class MainActivity extends Activity {
         loading = true;
         RewardedAd.load(this, BuildConfig.REWARDED_AD_UNIT, new AdRequest.Builder().build(), new RewardedAdLoadCallback() {
             @Override public void onAdLoaded(RewardedAd ad) { loading=false; rewarded=ad; if(pendingId!=null) showPending(); }
-            @Override public void onAdFailedToLoad(LoadAdError error) { loading=false; rewarded=null; if(pendingId!=null){ send(pendingId,"unavailable"); pendingId=null; } }
+            @Override public void onAdFailedToLoad(LoadAdError error) {
+                Log.w("SignalCityAds", "Rewarded load failed: " + error.getCode() + " " + error.getMessage());
+                loading=false; rewarded=null;
+                if(pendingId!=null){ String id=pendingId; pendingId=null; send(id,"unavailable"); }
+            }
         });
     }
     private void showPending() {
-        if (pendingId == null || rewarded == null || displaying || isFinishing()) return;
+        if (pendingId == null || rewarded == null || displaying || isFinishing() || !foreground) return;
         final String requestId = pendingId;
         pendingId = null;
         RewardedAd ad = rewarded;
@@ -134,11 +160,25 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (!GAME_URL.equals(game.getUrl()) || !adsInitialized || displaying || pendingId!=null) { send(requestId,"unavailable"); return; }
                 pendingId=requestId;
+                handler.postDelayed(() -> {
+                    if (requestId.equals(pendingId)) {
+                        pendingId=null;
+                        send(requestId,"unavailable");
+                    }
+                }, 25000);
                 if(rewarded!=null) showPending(); else loadReward();
             });
         }
     }
-    @Override protected void onPause() { if(banner!=null)banner.pause(); super.onPause(); }
-    @Override protected void onResume() { super.onResume(); if(banner!=null)banner.resume(); }
-    @Override protected void onDestroy() { if(banner!=null)banner.destroy(); if(game!=null){game.removeJavascriptInterface("SignalAds");game.destroy();game=null;} super.onDestroy(); }
+    @Override protected void onPause() { foreground=false; handler.removeCallbacks(retryBanner); if(banner!=null)banner.pause(); super.onPause(); }
+    @Override protected void onResume() {
+        super.onResume(); foreground=true;
+        if(banner!=null)banner.resume();
+        if (adsInitialized && bannerRetryCount > 0 && bannerRetryCount <= 3) {
+            handler.removeCallbacks(retryBanner);
+            handler.postDelayed(retryBanner, 60000L);
+        }
+        showPending();
+    }
+    @Override protected void onDestroy() { handler.removeCallbacksAndMessages(null); if(banner!=null)banner.destroy(); if(game!=null){game.removeJavascriptInterface("SignalAds");game.destroy();game=null;} super.onDestroy(); }
 }
