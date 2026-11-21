@@ -1,0 +1,20 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.dreamhomedesigner.app'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.dreamhomedesigner.app'
+        minSdk 23
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+    }
+    buildFeatures { buildConfig true }
+    buildTypes { release { minifyEnabled false } }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'com.google.android.gms:play-services-ads:24.6.0'
+    implementation 'com.google.android.ump:user-messaging-platform:3.2.0'
+}
