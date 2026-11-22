@@ -7,6 +7,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.print.PrintManager;
 import android.util.Log;
 import android.view.View;
@@ -54,6 +55,8 @@ public class MainActivity extends Activity {
     private boolean bannerReady=false, bannerLoading=false, consentUpdating=false;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private String pendingText;
+    private long lastBannerAttemptAt=-60000;
+    private String lastBannerMessage="Waiting for an ad request.";
     private WebViewAssetLoader assets;
 
     @Override public void onCreate(Bundle state){
@@ -82,24 +85,27 @@ public class MainActivity extends Activity {
     private boolean navigate(Uri uri){String u=uri.toString();if(u.startsWith(ROOT))return false;if("https".equalsIgnoreCase(uri.getScheme())){try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(Exception ignored){}}return true;}
     private void updatePrivacy(){boolean required=consent!=null&&consent.getPrivacyOptionsRequirementStatus()==ConsentInformation.PrivacyOptionsRequirementStatus.REQUIRED;privacyButton.setVisibility(required?View.VISIBLE:View.GONE);}
     private void showPrivacyOptions(){if(consent==null)return;UserMessagingPlatform.showPrivacyOptionsForm(this,error->{updatePrivacy();maybeStartAds();});}
-    private void requestConsent(){if(consent==null||consentUpdating)return;consentUpdating=true;consent.requestConsentInfoUpdate(this,new ConsentRequestParameters.Builder().build(),()->UserMessagingPlatform.loadAndShowConsentFormIfRequired(this,error->{consentUpdating=false;updatePrivacy();maybeStartAds();}),error->{consentUpdating=false;updatePrivacy();maybeStartAds();});}
-    private void maybeStartAds(){if(adsStarted||consent==null||!consent.canRequestAds())return;adsStarted=true;MobileAds.initialize(this,status->runOnUiThread(()->{loadBanner();loadRewarded();}));}
+    private void requestConsent(){if(consent==null||consentUpdating)return;consentUpdating=true;consent.requestConsentInfoUpdate(this,new ConsentRequestParameters.Builder().build(),()->UserMessagingPlatform.loadAndShowConsentFormIfRequired(this,error->{consentUpdating=false;updatePrivacy();maybeStartAds();}),error->{consentUpdating=false;lastBannerMessage="Privacy information could not be updated. Check your connection and try again.";updatePrivacy();maybeStartAds();});}
+    private void maybeStartAds(){if(adsStarted||consent==null||!consent.canRequestAds())return;adsStarted=true;lastBannerMessage="Starting the ads SDK.";MobileAds.initialize(this,status->runOnUiThread(()->{loadBanner();loadRewarded();}));}
     private void updateBannerVisibility(){bannerContainer.setVisibility(bannerReady&&premiumKnown&&!premium?View.VISIBLE:View.GONE);}
     private void loadBanner(){
         if(isFinishing()||!adsStarted||consent==null||!consent.canRequestAds()||bannerLoading||bannerReady)return;
+        long elapsed=SystemClock.elapsedRealtime()-lastBannerAttemptAt;
+        if(elapsed<30000){handler.removeCallbacks(retryBanner);handler.postDelayed(retryBanner,30000-elapsed);return;}
         if(banner==null){
             banner=new AdView(this);banner.setAdUnitId(BANNER);
             int width=(int)(getResources().getDisplayMetrics().widthPixels/getResources().getDisplayMetrics().density);
             banner.setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(this,Math.max(1,width)));
             banner.setAdListener(new AdListener(){
-                @Override public void onAdLoaded(){bannerLoading=false;bannerReady=true;updateBannerVisibility();}
-                @Override public void onAdFailedToLoad(@NonNull LoadAdError error){bannerLoading=false;bannerReady=false;updateBannerVisibility();Log.w("DreamHomeAds","Banner load failed: "+error.getCode()+" "+error.getMessage());handler.removeCallbacks(retryBanner);handler.postDelayed(retryBanner,60000);}
+                @Override public void onAdLoaded(){bannerLoading=false;bannerReady=true;lastBannerMessage="Banner ad loaded.";updateBannerVisibility();}
+                @Override public void onAdFailedToLoad(@NonNull LoadAdError error){bannerLoading=false;bannerReady=false;lastBannerMessage="No banner returned (error "+error.getCode()+"). Check the internet and AdMob account status.";updateBannerVisibility();Log.w("DreamHomeAds","Banner load failed: "+error.getCode()+" "+error.getMessage());handler.removeCallbacks(retryBanner);handler.postDelayed(retryBanner,60000);}
             });
             bannerContainer.removeAllViews();bannerContainer.addView(banner);updateBannerVisibility();
         }
-        bannerLoading=true;banner.loadAd(new AdRequest.Builder().build());
+        bannerLoading=true;lastBannerAttemptAt=SystemClock.elapsedRealtime();lastBannerMessage="Requesting a banner ad.";banner.loadAd(new AdRequest.Builder().build());
     }
     private final Runnable retryBanner=()->{if(!premium)loadBanner();};
+    private void showAdStatus(){String detail=premiumKnown&&premium?"Premium is active, so banners are hidden on this account.":consent==null||!consent.canRequestAds()?"Ads are waiting for privacy information or an internet connection.":lastBannerMessage;new AlertDialog.Builder(this).setTitle("Banner ad status").setMessage(detail+"\n\nReal ad availability depends on AdMob. For testing use the test-ads build.").setPositiveButton("OK",null).setNeutralButton("Try again",(d,w)->{if(consent!=null&&!consent.canRequestAds())requestConsent();else if(!adsStarted)maybeStartAds();else if(!bannerReady&&!bannerLoading)loadBanner();}).show();}
     private void loadRewarded(){if(!adsStarted||consent==null||!consent.canRequestAds()||rewarded!=null||loadingReward)return;loadingReward=true;RewardedInterstitialAd.load(this,REWARDED,new AdRequest.Builder().build(),new RewardedInterstitialAdLoadCallback(){@Override public void onAdLoaded(@NonNull RewardedInterstitialAd ad){loadingReward=false;rewarded=ad;}@Override public void onAdFailedToLoad(@NonNull LoadAdError error){loadingReward=false;rewarded=null;}});}
     private void sendToPage(String method){if(web!=null&&web.getUrl()!=null&&web.getUrl().startsWith(ROOT))web.evaluateJavascript("window.DreamAds && window.DreamAds."+method+"()",null);}
     private void showRewarded(String reason){if(showing)return;if(consent==null||!consent.canRequestAds()||rewarded==null){loadRewarded();sendToPage("_failed");return;}showing=true;String reward="item".equals(reason)?"Unlock the selected item after the reward is earned.":"Earn 50 coins after the reward is earned.";
@@ -108,6 +114,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void showRewarded(String reason){runOnUiThread(()->MainActivity.this.showRewarded("item".equals(reason)?"item":"coins"));}
         @JavascriptInterface public void setPremium(boolean value){runOnUiThread(()->{premium=value;premiumKnown=true;updateBannerVisibility();if(!value&&adsStarted&&!bannerReady&&!bannerLoading)loadBanner();});}
         @JavascriptInterface public void showPrivacyOptions(){runOnUiThread(()->MainActivity.this.showPrivacyOptions());}
+        @JavascriptInterface public void showAdStatus(){runOnUiThread(()->MainActivity.this.showAdStatus());}
         @JavascriptInterface public void saveText(String text){runOnUiThread(()->{if(text==null||text.length()>524288){Toast.makeText(MainActivity.this,"Item list is too large",Toast.LENGTH_SHORT).show();return;}try{pendingText=text;Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("text/csv");i.putExtra(Intent.EXTRA_TITLE,"dream-home-item-list.csv");startActivityForResult(i,SAVE_TEXT);}catch(Exception e){pendingText=null;Toast.makeText(MainActivity.this,"Could not open a location to save the list",Toast.LENGTH_LONG).show();}});}
         @JavascriptInterface public void printPlan(){runOnUiThread(()->{try{PrintManager pm=(PrintManager)getSystemService(PRINT_SERVICE);pm.print("Dream Home room plan",web.createPrintDocumentAdapter("Dream Home room plan"),null);}catch(Exception e){Toast.makeText(MainActivity.this,"Printing is not available on this device",Toast.LENGTH_LONG).show();}});}
     }
