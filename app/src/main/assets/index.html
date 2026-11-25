@@ -1404,13 +1404,39 @@ async function iceServers(){
  })();
  try{return await iceInFlight}finally{iceInFlight=null}
 }
+const callChannelStatus=new WeakMap();
 async function listenCalls(){
- const {data:{session}}=await sb.auth.getSession();if(session)await sb.realtime.setAuth(session.access_token);
+ if(!me)return;
+ const userId=me.id;
+ const {data:{session}}=await sb.auth.getSession();
+ if(!session||me?.id!==userId)return;
+ await sb.realtime.setAuth(session.access_token);
+ if(me?.id!==userId)return;
  convs.filter(c=>c.kind==='direct'&&!chans[c.id]).forEach(c=>{
-  const ch=sb.channel('call:'+c.id,{config:{private:true,broadcast:{self:false}}});
-  ch.on('broadcast',{event:'sig'},({payload})=>onSig(c.id,payload||{})).subscribe();chans[c.id]=ch});
+  const ch=sb.channel('call:'+c.id,{config:{private:true,broadcast:{self:false,ack:true}}});
+  chans[c.id]=ch;
+  callChannelStatus.set(ch,'JOINING');
+  ch.on('broadcast',{event:'sig'},({payload})=>onSig(c.id,payload||{}))
+    .subscribe(status=>{callChannelStatus.set(ch,status);});
+ });
 }
-const sig=(cid,p)=>{const ch=chans[cid];if(!ch||!me)return Promise.resolve('no-channel');return ch.send({type:'broadcast',event:'sig',payload:Object.assign({from:me.id},p)}).catch(e=>{console.warn('Call signal failed',e);return 'error'})};
+async function sig(cid,p){
+ if(!me)return 'no-channel';
+ const userId=me.id;
+ try{
+  if(!chans[cid])await listenCalls();
+  const ch=chans[cid];
+  if(!ch||me?.id!==userId)return 'no-channel';
+  // A successful push invitation does not mean its private signal channel has joined.
+  const deadline=Date.now()+4000;
+  while(callChannelStatus.get(ch)!=='SUBSCRIBED'){
+   if(me?.id!==userId||chans[cid]!==ch||Date.now()>=deadline)return 'no-channel';
+   await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  if(me?.id!==userId||chans[cid]!==ch)return 'no-channel';
+  return await ch.send({type:'broadcast',event:'sig',payload:Object.assign({from:userId},p)});
+ }catch(e){console.warn('Call signal failed',e);return 'error'}
+}
 function reliableCallEnd(cid,kind){if(!cid||!me)return;const payload={t:kind||'end',ended_at:Date.now()};sig(cid,payload);setTimeout(()=>{if(me)sig(cid,payload)},450);setTimeout(()=>{if(me)sig(cid,payload)},1200)};
 function callUI(h,video){const u=$('#callUI');u.hidden=false;u.innerHTML=(video?'<video id="rv" autoplay playsinline></video><video id="lv" autoplay playsinline muted></video>':'<audio id="rv" autoplay></audio>')+h}
 const peerOf=cid=>other(conv(cid));
@@ -1535,7 +1561,7 @@ async function sendPreparedOffer(c){
  }
  c.offerSent=true;
  const sent=await sig(c.cid,{t:'offer',sdp:pc.localDescription});
- if(sent==='error'||sent==='no-channel')throw new Error('Call signaling is offline');
+ if(sent!=='ok')throw new Error('Call signaling is offline');
  for(const candidate of c.earlyCandidates.splice(0)){
   if(call!==c)return;
   await sig(c.cid,{t:'ice',c:candidate});
@@ -1565,7 +1591,7 @@ async function onSig(cid,p){
    await call.pc.setRemoteDescription(p.sdp);await flush();
    const answer=await call.pc.createAnswer();
    await call.pc.setLocalDescription(answer);
-   await sig(cid,{t:'answer',sdp:call.pc.localDescription});
+   if(await sig(cid,{t:'answer',sdp:call.pc.localDescription})!=='ok')throw new Error('Call answer signaling failed');
   }catch(e){console.warn('Call answer failed:',e);toast('Could not connect the call.',1);endCall('failed',true)}
  }
  else if(p.t==='answer'&&call.pc&&call.pc.signalingState==='have-local-offer'){try{await call.pc.setRemoteDescription(p.sdp);await flush()}catch(e){console.warn('Call answer rejected:',e);endCall('failed',true)}}
@@ -1590,7 +1616,7 @@ async function acceptCall(){
   if(call!==c)return;
   c.connectTimer=setTimeout(()=>{if(call===c&&!c.ok){toast('The other device could not connect. Please try again.',1);endCall('failed',true)}},20000);
   const result=await sig(c.cid,{t:'accept'});
-  if(result==='no-channel'||result==='error')throw new Error('Call signaling is offline');
+  if(result!=='ok')throw new Error('Call signaling is offline');
   if(c.inviteId)dismissCallInvite(c.inviteId);
  }catch(e){
   console.warn('Accept call failed:',e);
